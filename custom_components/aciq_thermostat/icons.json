@@ -130,6 +130,14 @@
       "preflight": {
         "default": "mdi:clipboard-check-outline"
       }
+    },
+    "switch": {
+      "block_cloud": {
+        "default": "mdi:cloud-check-outline",
+        "state": {
+          "on": "mdi:cloud-off-outline"
+        }
+      }
     }
   }
 }

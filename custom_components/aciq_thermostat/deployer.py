@@ -32,6 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 
 DAEMON_LOCAL_PATH = Path(__file__).parent / "bin" / DAEMON_FILENAME
 
+# Never filtered by the egress rule (see _apply_egress)
+LOCAL_NETS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")
+
 ADB_ERRORS = (
     AdbConnectionError,
     AdbTimeoutError,
@@ -188,7 +191,11 @@ class Deployer:
             lan = str(ipaddress.ip_interface(addr).network)
         except ValueError as err:
             raise DeployError(f"cannot determine thermostat LAN for egress filter ({addr!r})") from err
-        rules = ["-o lo -j RETURN", f"-d {lan} -j RETURN",
+        # Only public internet destinations are dropped: every private/local range stays
+        # open (own LAN, any RFC1918 subnet/VLAN, link-local, CGNAT/Tailscale), plus
+        # explicitly allowlisted IPs, broadcast and multicast.
+        rules = ["-o lo -j RETURN",
+                 *(f"-d {net} -j RETURN" for net in (lan, *LOCAL_NETS)),
                  *(f"-d {shlex.quote(ip)} -j RETURN" for ip in allow_ips),
                  "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"]
         script = ("iptables -N ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS && "
@@ -204,6 +211,29 @@ class Deployer:
             raise DeployError(f"egress filter failed: {out[-200:]}")
         drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
         self.last_egress = {"enabled": True, "lan": lan, "dropped_packets": int(drops) if drops.isdigit() else None}
+
+    async def verify_egress(self, enable: bool, extra_ips: list[str]) -> str:
+        """Confirm the runtime egress rule matches `enable`; (re)apply or remove if not.
+
+        Returns 'ok', 'reapplied' or 'removed'. One short ADB session."""
+        async with self._lock:
+            dev = await self._session()
+            try:
+                present = (await self._sh(
+                    dev, "iptables -C OUTPUT -j ACIQ_EGRESS 2>/dev/null && echo PRESENT || echo MISSING")) == "PRESENT"
+                if enable and present:
+                    drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
+                    self.last_egress = {**self.last_egress, "enabled": True,
+                                        "dropped_packets": int(drops) if drops.isdigit() else None}
+                    return "ok"
+                if not enable and not present:
+                    self.last_egress = {"enabled": False}
+                    return "ok"
+                allow = [ip for ip in [self._local_ip(dev), *extra_ips] if ip]
+                await self._apply_egress(dev, enable, list(dict.fromkeys(allow)))
+                return "reapplied" if enable else "removed"
+            finally:
+                await dev.close()
 
     async def ensure_daemon(self, extra_ips: list[str], force: bool = False,
                             block_egress: bool | None = None) -> str:

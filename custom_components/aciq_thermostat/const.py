@@ -29,6 +29,8 @@ LONG_POLL_MAX_BACKOFF = 10
 PROBE_TIMEOUT = 3
 # Minimum time between automatic redeploys
 DEPLOY_MIN_INTERVAL = 60
+# How often to confirm the egress rule is still in place (also after every reboot)
+EGRESS_VERIFY_INTERVAL = 1800
 
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"

@@ -16,8 +16,17 @@
   thermostat drops everything except LAN/Home Assistant traffic, so the ACiQ cloud client's endless DNS retries
   (~40/s with the internet blocked upstream) no longer reach your router. Re-applied after reboots; removed when off.
 
+- **Block cloud traffic** switch on the device page (same as the option), with *rule active*, *dropped packets* and
+  *last verified* attributes. Local traffic is never filtered (LAN, all private 10/172.16/192.168 ranges, link-local,
+  100.64/10 VPN/Tailscale, Home Assistant, broadcast/multicast). The rule is verified after every reboot/redeploy and
+  every 30 min, and re-applied if missing.
+
 ### Changed
-- Daemon reads the thermostat log incrementally (only new lines) instead of re-parsing ~1 MB per request.
+- Daemon reads the thermostat log incrementally (only new lines, pre-filtered to the two processes it reads) and keeps
+  dev_app's memory handle open. Measured on a TL04-1: a state read went from ~0.58 s to ~0.02 s; a waiting long-poll
+  costs ~0.85 % of one core (≈ the old 30 s polling average), ~0.15 % with *Block cloud traffic* on.
+- With *Block cloud traffic* on, the ACiQ cloud client's CPU use dropped from ~23 % to ~2 % of a core and its outbound
+  DNS from ~40/s to 0 (measured), lowering overall thermostat load.
 - *Auto state* diagnostic reports *None* outside Auto (the thermostat keeps its last Auto decision while in Heat/Cool;
   climate never used it outside Auto).
 - Automatic redeploy back-off 5 min → 1 min; post-command refresh 2 s → 1 s.

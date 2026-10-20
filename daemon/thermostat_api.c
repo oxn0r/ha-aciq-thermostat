@@ -152,6 +152,11 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             state->last_update[23] = '\0';
         }
 
+        /* Only dev_app and meiju lines carry state. Skip everything else cheaply: with the
+           cloud unreachable, msmart alone logs ~150 lines/s. */
+        if (!strstr(line, " dev_app: ") && !strstr(line, " meiju: "))
+            return;
+
         /* Parse sensor data: sensor->f_temp = X  sensor->humi_val = Y */
         if (strstr(line, "sensor->f_temp")) {
             float temp;
@@ -317,6 +322,8 @@ static void refresh_from_log(struct thermostat_state *state) {
         return;
     }
     if (!have_new) return;
+    if (st_new.st_ino == cur_new.ino && st_new.st_size == cur_new.off)
+        return;                              /* nothing new: one stat() and done */
     if (st_new.st_ino != cur_new.ino) {
         /* rotated: finish the previous file (now .old) from where we stopped */
         if (stat(LOG_FILE_OLD, &st_old) == 0 && st_old.st_ino == cur_new.ino)
@@ -397,18 +404,43 @@ static pid_t find_pid(const char *name) {
     return found;
 }
 
+/*
+ * dev_app's /proc/<pid>/mem is kept open between reads: a steady-state read is a single
+ * pread(). If dev_app restarts the pread fails, and we look it up again (scanning /proc
+ * at most every 10 s), so long-poll children stay at a few syscalls per second.
+ */
+static int dev_mem_fd = -1;
+static time_t dev_mem_next_scan = 0;
+
+static int dev_mem_open(void) {
+    if (dev_mem_fd >= 0) return dev_mem_fd;
+    time_t now = time(NULL);
+    if (now < dev_mem_next_scan) return -1;
+    dev_mem_next_scan = now + 10;
+    pid_t pid = find_pid("dev_app");
+    if (pid <= 0) return -1;
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/mem", (int)pid);
+    dev_mem_fd = open(path, O_RDONLY);
+    if (dev_mem_fd >= 0) dev_mem_next_scan = 0;
+    return dev_mem_fd;
+}
+
 static void read_equipment(struct equipment *eq) {
     memset(eq, 0, sizeof(*eq));
     if (strcmp(firmware_id, VERIFIED_FIRMWARE) != 0) return;
-    pid_t pid = find_pid("dev_app");
-    if (pid <= 0) return;
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/mem", (int)pid);
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return;
     unsigned char b[G_SELF_STATE_SIZE];
-    ssize_t n = pread(fd, b, sizeof(b), G_SELF_STATE_ADDR);
-    close(fd);
+    ssize_t n = -1;
+    for (int attempt = 0; attempt < 2 && n != (ssize_t)sizeof(b); attempt++) {
+        int fd = dev_mem_open();
+        if (fd < 0) return;
+        n = pread(fd, b, sizeof(b), G_SELF_STATE_ADDR);
+        if (n != (ssize_t)sizeof(b)) {          /* dev_app restarted: reopen once */
+            close(dev_mem_fd);
+            dev_mem_fd = -1;
+            dev_mem_next_scan = 0;
+        }
+    }
     if (n != (ssize_t)sizeof(b)) return;
     /* Layout canary: state_setting.TsMinSet / TsMaxSet = device limits 60 / 86 F */
     if (b[100] != 60 || b[102] != 86) return;

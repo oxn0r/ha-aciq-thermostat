@@ -27,6 +27,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "versions": c.versions,
         "long_poll_supported": c.long_poll_supported,
         "egress_filter": c.deployer.last_egress,
+        "egress_verified_at": c.egress_verified_at.isoformat() if c.egress_verified_at else None,
         "thermostat_boot_time": c.boot_time.isoformat() if c.boot_time else None,
         "daemon_start_time": c.daemon_start_time.isoformat() if c.daemon_start_time else None,
         "events": list(c.events),

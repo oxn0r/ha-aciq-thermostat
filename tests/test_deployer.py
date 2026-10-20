@@ -137,6 +137,8 @@ async def test_egress_enable_builds_safe_chain(thermo: FakeThermostat) -> None:
     assert chain[-1].endswith("-j DROP")                         # DROP only after every allow rule
     joined = " | ".join(chain)
     for allow in ("-o lo -j RETURN", "-d 10.0.0.0/22 -j RETURN", "-d 10.0.0.2 -j RETURN",
+                  "-d 10.0.0.0/8 -j RETURN", "-d 172.16.0.0/12 -j RETURN", "-d 192.168.0.0/16 -j RETURN",
+                  "-d 169.254.0.0/16 -j RETURN", "-d 100.64.0.0/10 -j RETURN",
                   "-d 10.0.0.40 -j RETURN", "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"):
         assert allow in joined, allow
     assert d.last_egress == {"enabled": True, "lan": "10.0.0.0/22", "dropped_packets": 17}
@@ -163,3 +165,35 @@ async def test_egress_bad_lan_address(thermo: FakeThermostat) -> None:
     with pytest.raises(DeployError, match="LAN"):
         await Deployer("h", 5555).ensure_daemon([], block_egress=True)
     assert not any(c.startswith("iptables -N") for c in thermo.commands)   # nothing applied
+
+
+async def test_egress_never_blocks_local_destinations(thermo: FakeThermostat) -> None:
+    """Simulate the chain: every local/private destination returns before DROP; public ones hit DROP."""
+    import ipaddress
+    await Deployer("h", 5555).ensure_daemon([], block_egress=True)
+    nets = [ipaddress.ip_network(r.split("-d ")[1].split()[0]) for r in thermo.egress_chain if " -d " in r]
+
+    def verdict(dst: str) -> str:
+        ip = ipaddress.ip_address(dst)
+        return "allow" if any(ip in n for n in nets) else "drop"
+
+    for local in ("10.0.0.2", "10.0.0.4", "10.0.3.255", "10.20.30.40", "172.16.5.5", "192.168.1.10",
+                  "169.254.1.1", "100.68.50.84", "255.255.255.255", "224.0.0.251", "239.255.255.250"):
+        assert verdict(local) == "allow", local
+    for cloud in ("8.8.8.8", "1.1.1.1", "114.114.114.114", "52.223.47.215", "54.213.20.210"):
+        assert verdict(cloud) == "drop", cloud
+
+
+async def test_verify_egress_states(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    # enabled but missing (e.g. after a reboot) -> re-applied
+    assert await d.verify_egress(True, []) == "reapplied"
+    assert thermo.egress_chain and thermo.egress_chain[-1].endswith("-j DROP")
+    # enabled and present -> ok, drop counter refreshed
+    assert await d.verify_egress(True, []) == "ok"
+    assert d.last_egress["dropped_packets"] == 17
+    # disabled but present -> removed
+    assert await d.verify_egress(False, []) == "removed"
+    assert thermo.egress_chain == []
+    # disabled and absent -> ok
+    assert await d.verify_egress(False, []) == "ok"

@@ -235,7 +235,16 @@ on its own within a few minutes; a stable 2.4 GHz access point helps.
 With the thermostat's internet blocked, the ACiQ cloud client (`msmart`) retries DNS endlessly (8.8.8.8, 1.1.1.1, …),
 around 40 lookups per second. Turn on **Configure → Block the thermostat's internet at the source**: a temporary
 firewall rule on the thermostat drops everything except your LAN and Home Assistant, so the traffic never reaches your
-router (and the retries slow down). It's re-applied after reboots and removed when you turn it off.
+router. It's re-applied after reboots and removed when you turn it off. There's also a **Block cloud traffic** switch on
+the device page for one-tap on/off.
+
+Only public internet destinations are dropped. Local traffic is never filtered: your LAN, every private range
+(10/8, 172.16/12, 192.168/16), link-local, 100.64/10 (VPNs such as Tailscale), Home Assistant, broadcast and multicast.
+The rule lives in the thermostat's memory only, so a power cycle always clears it. The integration verifies it after
+every reboot and every 30 minutes.
+
+Measured on a TL04-1: the cloud client's CPU use dropped from ~23 % to ~2 % of a core, its DNS traffic from ~40
+packets/s to zero, and system load fell noticeably.
 
 ## Troubleshooting
 | Symptom | Fix |

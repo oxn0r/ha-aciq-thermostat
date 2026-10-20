@@ -58,12 +58,12 @@
         "data": {
           "auto_deploy": "Automatically (re)deploy the daemon over ADB",
           "extra_allowed_ips": "Extra IPs allowed to use the thermostat API (comma separated)",
-          "block_egress": "Block the thermostat's internet at the source"
+          "block_egress": "Block the thermostat's cloud traffic at the source"
         },
         "data_description": {
           "auto_deploy": "Copy and start the local API daemon on the thermostat at startup and after it reboots. Turn off only if you manage the daemon yourself.",
           "extra_allowed_ips": "Home Assistant's own IP is always allowed. Add other machines (e.g. a workstation) that may use the thermostat API directly.",
-          "block_egress": "Drops all traffic from the thermostat except to your local network and Home Assistant, using a temporary firewall rule on the thermostat (re-applied after reboots, removed when turned off). Stops the ACiQ cloud client's endless DNS retries from flooding your router. The ACiQ app will no longer work."
+          "block_egress": "Drops traffic from the thermostat to public internet addresses only. Local traffic is never blocked (your LAN, any private 10/172.16/192.168 network, link-local, VPN/Tailscale 100.64/10, Home Assistant, broadcast/multicast). Temporary rule on the thermostat: re-applied after reboots, removed when turned off, cleared by a power cycle. Stops the ACiQ cloud client's endless DNS retries; the ACiQ app will not work while on."
         }
       }
     },
@@ -209,6 +209,11 @@
       },
       "preflight": {
         "name": "Run pre-flight checks"
+      }
+    },
+    "switch": {
+      "block_cloud": {
+        "name": "Block cloud traffic"
       }
     }
   },

@@ -78,6 +78,8 @@ class FakeAdb:
                 return "iptables: No chain/target/match by that name."
             t.egress_chain = [part.strip() for part in cmd.split("&&") if "iptables -A ACIQ_EGRESS" in part]
             return "EGRESS_OK"
+        if cmd.startswith("iptables -C OUTPUT -j ACIQ_EGRESS"):
+            return "PRESENT" if t.egress_chain else "MISSING"
         if cmd.startswith("iptables -L ACIQ_EGRESS"):
             return "17"
         if cmd.startswith("iptables -D OUTPUT -j ACIQ_EGRESS"):

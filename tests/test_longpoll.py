@@ -339,3 +339,84 @@ async def test_egress_option_passed_to_deploy(hass, aioclient_mock, mock_deploye
     _, ensure = mock_deployer
     await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "block_egress": True})
     assert ensure.call_args.kwargs["block_egress"] is True
+
+
+async def test_block_cloud_switch_toggles_option(hass, aioclient_mock, mock_deployer, state) -> None:
+    _, ensure = mock_deployer
+    e = await _setup(hass, aioclient_mock, state)
+    st = hass.states.get("switch.thermostat_block_cloud_traffic")
+    assert st.state == "off"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                   blocking=True)
+    await hass.async_block_till_done()
+    assert e.options["block_egress"] is True
+    assert ensure.call_args.kwargs["block_egress"] is True          # reload applied it
+    assert hass.states.get("switch.thermostat_block_cloud_traffic").state == "on"
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                   blocking=True)                     # no-op when already on
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                   blocking=True)
+    await hass.async_block_till_done()
+    assert e.options["block_egress"] is False and ensure.call_args.kwargs["block_egress"] is False
+
+
+async def test_egress_verified_after_reboot_and_periodically(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+               AsyncMock(return_value="ok")) as verify:
+        e = await _setup(hass, aioclient_mock, _with(state, uptime_s=50000),
+                         options={CONF_AUTO_DEPLOY: True, "block_egress": True})
+        c = e.runtime_data
+        await hass.async_block_till_done()
+        verify.assert_not_awaited()                     # just applied by the deploy at setup
+        assert c.egress_verified_at is not None
+
+        caplog.set_level(logging.WARNING)
+        c._track_times(_with(state, uptime_s=40))       # reboot detected
+        await hass.async_block_till_done()
+        assert verify.await_count == 1
+        assert "rebooted" in caplog.text and any(ev["event"] == "reboot" for ev in c.events)
+
+        c._track_times(_with(state, uptime_s=100))       # soon after: no new check
+        await hass.async_block_till_done()
+        assert verify.await_count == 1
+        c.egress_verified_at = dt_util.utcnow() - timedelta(seconds=1900)
+        c._track_times(_with(state, uptime_s=160))       # 30 min elapsed: periodic check
+        await hass.async_block_till_done()
+        assert verify.await_count == 2
+
+        verify.return_value = "reapplied"
+        c._egress_check_due = True
+        c._track_times(_with(state, uptime_s=220))
+        await hass.async_block_till_done()
+        assert "was missing and has been re-applied" in caplog.text
+
+
+async def test_egress_check_failure_retried(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    from custom_components.aciq_thermostat.deployer import DeployError
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+               AsyncMock(side_effect=DeployError("adb busy"))):
+        e = await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "block_egress": True})
+        c = e.runtime_data
+        c._egress_check_due = True
+        c._maybe_verify_egress()
+        await hass.async_block_till_done()
+    assert "Could not verify the cloud-traffic block" in caplog.text
+    assert c._egress_check_due is True                 # retried on the next poll
+
+
+async def test_no_egress_checks_when_off(hass, aioclient_mock, mock_deployer, state) -> None:
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress", AsyncMock()) as verify:
+        e = await _setup(hass, aioclient_mock, _with(state, uptime_s=50000))
+        e.runtime_data._track_times(_with(state, uptime_s=10))     # reboot, but block is off
+        await hass.async_block_till_done()
+    verify.assert_not_awaited()
+
+
+async def test_switch_attributes(hass, aioclient_mock, mock_deployer, state) -> None:
+    e = await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "block_egress": True})
+    e.runtime_data.deployer.last_egress = {"enabled": True, "dropped_packets": 109}
+    e.runtime_data.async_update_listeners()
+    attrs = hass.states.get("switch.thermostat_block_cloud_traffic").attributes
+    assert attrs["rule_active"] is True and attrs["dropped_packets"] == 109 and attrs["last_verified"]

@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEPLOY_MIN_INTERVAL,
     DOMAIN,
+    EGRESS_VERIFY_INTERVAL,
     ISSUE_DEPLOY,
     ISSUE_FIRMWARE,
     LONG_POLL_MAX_BACKOFF,
@@ -113,6 +114,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.boot_time: datetime | None = None
         self.daemon_start_time: datetime | None = None
         self._lp_task: asyncio.Task[None] | None = None
+        self.egress_verified_at: datetime | None = None
+        self._egress_check_due = True       # verify after setup/redeploy/reboot, then every 30 min
+        self._egress_task: asyncio.Task[None] | None = None
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or self.host)},
             name=entry.title,
@@ -174,7 +178,42 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if result != "already running":
             self.long_poll_supported = None  # new daemon: re-detect
+        if self.block_egress:
+            self.egress_verified_at = dt_util.utcnow()   # applied as part of the deploy
+            self._egress_check_due = False
         return result
+
+    # ------------------------------------------------------------- egress
+
+    @property
+    def block_egress(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_BLOCK_EGRESS, False))
+
+    def _maybe_verify_egress(self) -> None:
+        """Schedule a background check that the egress rule is (still) applied."""
+        if not self.block_egress or not self.auto_deploy:
+            return
+        due = self._egress_check_due or self.egress_verified_at is None or (
+            (dt_util.utcnow() - self.egress_verified_at).total_seconds() > EGRESS_VERIFY_INTERVAL)
+        if not due or (self._egress_task is not None and not self._egress_task.done()):
+            return
+        self._egress_check_due = False
+        self._egress_task = self.config_entry.async_create_background_task(
+            self.hass, self._verify_egress(), f"{DOMAIN} egress check {self.host}")
+
+    async def _verify_egress(self) -> None:
+        try:
+            result = await self.deployer.verify_egress(True, self.extra_ips())
+        except DeployError as err:
+            _LOGGER.warning("Could not verify the cloud-traffic block on %s: %s", self.host, err)
+            self._egress_check_due = True
+            return
+        self.egress_verified_at = dt_util.utcnow()
+        self._event("egress_check", result=result, egress=dict(self.deployer.last_egress))
+        if result != "ok":
+            _LOGGER.warning("Cloud-traffic block on %s was missing and has been re-applied", self.host)
+        else:
+            _LOGGER.debug("Cloud-traffic block on %s verified: %s", self.host, self.deployer.last_egress)
 
     async def async_run_preflight(self) -> dict[str, Any]:
         res = await self.deployer.preflight()
@@ -359,6 +398,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             old: datetime | None = getattr(self, attr)
             if old is None or abs((new - old).total_seconds()) > 120:
                 setattr(self, attr, new)
+                if attr == "boot_time" and old is not None:
+                    _LOGGER.warning("Thermostat %s rebooted (uptime %s)", self.host, _fmt_duration(secs))
+                    self._event("reboot", uptime_s=secs)
+                    self._egress_check_due = True
+        self._maybe_verify_egress()
 
     # --------------------------------------------------------------- control
 
