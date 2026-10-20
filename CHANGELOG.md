@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 — 2026-10-20
+### Changed
+- "Aux heat allowed" moved to the device's diagnostic section (still enabled). It shows backup/furnace heat is
+  *permitted* in the current mode (on in Heat), not that the furnace is burning; use the Furnace sensor for that.
+
 ## 1.0.1 — 2026-10-20
 ### Fixed
 - **hvac_action showed "cooling" while heating in Auto.** v1.0.0 guessed Auto's direction from room vs setpoint,

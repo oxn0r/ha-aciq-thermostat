@@ -147,9 +147,9 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
-| Power · Aux heat allowed · Emergency heat | binary_sensor | |
+| Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Run pre-flight checks | button | maintenance |
-| Firmware · Indoor unit firmware · Local control enabled · Wi-Fi signal · Indoor unit T1 · Auto state (raw) | diagnostic | the last three are disabled by default |
+| Firmware · Indoor unit firmware · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
 
 The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
 

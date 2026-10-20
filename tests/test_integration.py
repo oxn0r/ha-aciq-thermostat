@@ -171,3 +171,13 @@ async def test_device_versions(hass: HomeAssistant, aioclient_mock, mock_deploye
     dev = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, SERIAL)})
     assert dev.sw_version == "LD:1.2.60" and dev.hw_version == "V4.3" and dev.serial_number == SERIAL
     assert hass.states.get("sensor.thermostat_indoor_unit_firmware").state == "00AC000111171171000066111008"
+
+
+async def test_aux_heat_allowed_is_enabled_diagnostic(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:
+    from homeassistant.const import EntityCategory
+    from homeassistant.helpers import entity_registry as er
+    await _setup(hass, aioclient_mock, state)
+    ent = er.async_get(hass).async_get("binary_sensor.thermostat_aux_heat_allowed")
+    assert ent.entity_category is EntityCategory.DIAGNOSTIC
+    assert ent.disabled_by is None
+    assert hass.states.get("binary_sensor.thermostat_aux_heat_allowed").state == "off"

@@ -43,7 +43,10 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
                           device_class=BinarySensorDeviceClass.PROBLEM, needs_equipment=True,
                           value_fn=lambda d, eq: any(eq.get("fault_codes", []))
                           or bool(eq.get("fault_state")) or bool(eq.get("protect_state"))),
+    # dev_app elec_heat: backup (furnace) heat permitted in the current mode (on in Heat);
+    # not "furnace burning" -- that's the furnace sensor. Diagnostic, still enabled.
     AciqBinaryDescription(key="aux_heat_allowed", translation_key="aux_heat_allowed",
+                          entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=lambda d, eq: bool(d.get("dev", {}).get("elec_heat"))),
     AciqBinaryDescription(key="emergency_heat", translation_key="emergency_heat",
                           value_fn=lambda d, eq: bool(d.get("dev", {}).get("elec_heat_only"))),
