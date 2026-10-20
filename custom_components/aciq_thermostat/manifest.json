@@ -1,0 +1,20 @@
+{
+  "domain": "aciq_thermostat",
+  "name": "ACiQ Thermostat (Local)",
+  "codeowners": [
+    "@oxn0r"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/oxn0r/ha-aciq-thermostat",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/oxn0r/ha-aciq-thermostat/issues",
+  "loggers": [
+    "custom_components.aciq_thermostat",
+    "adb_shell"
+  ],
+  "requirements": [
+    "adb-shell[async]==0.4.4"
+  ],
+  "version": "1.0.0"
+}

@@ -1,0 +1,52 @@
+{
+    "current_temp": 71.6,
+    "humidity": 49.3,
+    "mode": "auto",
+    "fan": "auto",
+    "ui_mode_raw": 0,
+    "setpoint": 72,
+    "heat_limit": 0,
+    "cool_limit": 0,
+    "fan_mode": 1,
+    "compressor_running": false,
+    "wifi_connected": true,
+    "wifi_rssi": 46,
+    "last_update": "2026-10-19 19:12:06.978",
+    "firmware": "tina.tangly.20260314.152301",
+    "control_enabled": true,
+    "dev": {
+        "seen": true,
+        "power": 1,
+        "mode_raw": 1,
+        "auto_state": 4,
+        "temp_set": 72.0,
+        "zone_lower": 68.0,
+        "zone_upper": 79.0,
+        "elec_heat": 0,
+        "elec_heat_only": 0,
+        "wind_speed": 3
+    },
+    "ui": {
+        "heat_setpoint": 72,
+        "cool_setpoint": 72
+    },
+    "equipment": {
+        "available": true,
+        "outdoor_temp": 55.4,
+        "indoor_unit_t1": 71.6,
+        "indoor_coil_temp": 69.8,
+        "outdoor_coil_temp": 57.2,
+        "compressor_hz": 0,
+        "furnace_on": false,
+        "blower_on": true,
+        "blower_speed": 1,
+        "fault_codes": [
+            0,
+            0,
+            0,
+            0
+        ],
+        "fault_state": 0,
+        "protect_state": 0
+    }
+}

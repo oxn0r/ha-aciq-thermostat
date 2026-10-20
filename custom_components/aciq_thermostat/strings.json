@@ -1,0 +1,166 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ACiQ / Midea TL04-1 thermostat",
+        "description": "Enter the thermostat's IP address. Home Assistant connects over ADB (port 5555, no password on this device) and runs read-only checks before changing anything.\n\n{checks}",
+        "data": {
+          "host": "IP address",
+          "name": "Name",
+          "port": "API port",
+          "adb_port": "ADB port"
+        }
+      },
+      "confirm": {
+        "title": "Pre-flight checks passed",
+        "description": "Thermostat {host}:\n\n{checks}\n\nSubmitting will copy the local API daemon to the thermostat's RAM disk (/tmp) and start it. Nothing persistent on the thermostat is modified; the daemon is re-deployed automatically after the thermostat reboots."
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the thermostat over ADB: {checks}",
+      "checks_failed": "Pre-flight checks failed — this firmware or setup has not been verified:\n\n{checks}",
+      "invalid_host": "Enter an IPv4/IPv6 address"
+    },
+    "abort": {
+      "already_configured": "This thermostat is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ACiQ thermostat options",
+        "data": {
+          "auto_deploy": "Automatically (re)deploy the daemon over ADB",
+          "extra_allowed_ips": "Extra IPs allowed to use the thermostat API (comma separated)"
+        }
+      }
+    },
+    "error": {
+      "invalid_ip": "One of the IPs is not valid"
+    }
+  },
+  "issues": {
+    "firmware_unverified": {
+      "title": "Thermostat firmware changed — local control disabled",
+      "description": "The thermostat reports firmware {firmware}, but control was verified only on {verified}. Readings still work; control commands are blocked until the integration is updated for this firmware."
+    },
+    "deploy_failed": {
+      "title": "Could not start the thermostat API daemon",
+      "description": "Deploying over ADB failed: {error}. Check that the thermostat is online and that ADB (TCP 5555) is reachable from Home Assistant."
+    }
+  },
+  "entity": {
+    "climate": {
+      "thermostat": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "None",
+              "emergency_heat": "Emergency heat"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "setpoint": {
+        "name": "Setpoint"
+      },
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "off": "Off",
+          "auto": "Auto",
+          "cool": "Cool",
+          "heat": "Heat",
+          "fan_only": "Fan only",
+          "emergency_heat": "Emergency heat",
+          "unknown": "Unknown"
+        }
+      },
+      "fan_setting": {
+        "name": "Fan setting",
+        "state": {
+          "auto": "Auto",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "unknown": "Unknown"
+        }
+      },
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      },
+      "indoor_coil_temperature": {
+        "name": "Indoor coil temperature"
+      },
+      "outdoor_coil_temperature": {
+        "name": "Outdoor coil temperature"
+      },
+      "indoor_unit_t1": {
+        "name": "Indoor unit T1 temperature"
+      },
+      "compressor_frequency": {
+        "name": "Compressor frequency"
+      },
+      "blower_stage": {
+        "name": "Blower stage"
+      },
+      "fault_codes": {
+        "name": "Fault codes"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "auto_state": {
+        "name": "Auto state (raw)"
+      },
+      "indoor_unit_firmware": {
+        "name": "Indoor unit firmware"
+      }
+    },
+    "binary_sensor": {
+      "compressor": {
+        "name": "Compressor"
+      },
+      "furnace": {
+        "name": "Furnace"
+      },
+      "blower": {
+        "name": "Blower"
+      },
+      "fault": {
+        "name": "Fault"
+      },
+      "aux_heat_allowed": {
+        "name": "Aux heat allowed"
+      },
+      "emergency_heat": {
+        "name": "Emergency heat"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "control_enabled": {
+        "name": "Local control enabled"
+      }
+    },
+    "button": {
+      "redeploy": {
+        "name": "Redeploy daemon"
+      },
+      "preflight": {
+        "name": "Run pre-flight checks"
+      }
+    }
+  }
+}
