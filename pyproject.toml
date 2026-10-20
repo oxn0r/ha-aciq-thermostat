@@ -1,3 +1,21 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["custom_components.aciq_thermostat"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+files = ["custom_components/aciq_thermostat"]
+
+[[tool.mypy.overrides]]
+module = ["adb_shell.*"]
+ignore_missing_imports = true

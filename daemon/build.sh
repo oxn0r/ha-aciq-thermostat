@@ -1,5 +1,7 @@
 #!/bin/sh
 # Reproducible build of the on-thermostat API daemon (ARMv7 musl, static).
+# Canonical build host: Linux x86_64 with the official zig 0.17.0 tarball (as in CI).
+# Other hosts (e.g. Homebrew zig, macOS) may produce different bytes; use the CI artifact.
 # Usage: daemon/build.sh [--check]   (--check: fail if the bundled binary differs)
 set -eu
 cd "$(dirname "$0")"

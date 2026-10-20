@@ -16,7 +16,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
+from .coordinator import AciqCoordinator
 from .entity import AciqEntity
+
+PARALLEL_UPDATES = 0  # coordinator-based, read-only
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -62,7 +65,7 @@ async def async_setup_entry(
 class AciqBinarySensor(AciqEntity, BinarySensorEntity):
     entity_description: AciqBinaryDescription
 
-    def __init__(self, coordinator, desc: AciqBinaryDescription) -> None:
+    def __init__(self, coordinator: AciqCoordinator, desc: AciqBinaryDescription) -> None:
         super().__init__(coordinator, desc.key)
         self.entity_description = desc
 

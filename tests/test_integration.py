@@ -145,7 +145,7 @@ async def test_redeploy_when_daemon_gone(hass: HomeAssistant, aioclient_mock, mo
     calls_before = ensure.await_count
     aioclient_mock.clear_requests()
     aioclient_mock.get(f"{BASE}/api/state", exc=TimeoutError())
-    coord.last_deploy_attempt = 0
+    coord.last_deploy_attempt = None
     await coord.async_refresh()  # failure 1: no redeploy yet
     assert ensure.await_count == calls_before
     with patch("custom_components.aciq_thermostat.coordinator.asyncio.sleep", AsyncMock()):

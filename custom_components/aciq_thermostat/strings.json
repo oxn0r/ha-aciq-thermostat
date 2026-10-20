@@ -9,21 +9,47 @@
           "name": "Name",
           "port": "API port",
           "adb_port": "ADB port"
+        },
+        "data_description": {
+          "host": "The thermostat's IP address (shown in your router; hostname starts with midea_). Give it a DHCP reservation.",
+          "name": "Name for the device in Home Assistant, e.g. Family Room.",
+          "port": "Port the local API daemon will listen on (default 8080).",
+          "adb_port": "Android Debug Bridge port on the thermostat (default 5555)."
         }
       },
       "confirm": {
         "title": "Pre-flight checks passed",
         "description": "Thermostat {host}:\n\n{checks}\n\nSubmitting will copy the local API daemon to the thermostat's RAM disk (/tmp) and start it. Nothing persistent on the thermostat is modified; the daemon is re-deployed automatically after the thermostat reboots."
+      },
+      "reconfigure": {
+        "title": "Reconfigure thermostat connection",
+        "description": "Change the thermostat's IP or ports. Pre-flight checks run again and must find the same thermostat (serial number).\n\n{checks}",
+        "data": {
+          "host": "IP address",
+          "port": "API port",
+          "adb_port": "ADB port"
+        },
+        "data_description": {
+          "host": "The thermostat's IP address on your network (give it a DHCP reservation).",
+          "port": "Port of the local API daemon on the thermostat.",
+          "adb_port": "Android Debug Bridge port on the thermostat (5555)."
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not reach the thermostat over ADB: {checks}",
       "checks_failed": "Pre-flight checks failed — this firmware or setup has not been verified:\n\n{checks}",
-      "invalid_host": "Enter an IPv4/IPv6 address"
+      "invalid_host": "Enter an IPv4/IPv6 address",
+      "no_serial": "The thermostat did not report a serial number."
     },
     "abort": {
-      "already_configured": "This thermostat is already configured"
-    }
+      "already_configured": "This thermostat is already configured",
+      "cannot_connect": "Could not reach the thermostat over ADB",
+      "not_supported": "This device is not a supported/verified TL04-1 thermostat",
+      "wrong_device": "That address belongs to a different thermostat (serial number mismatch)",
+      "reconfigure_successful": "Connection updated"
+    },
+    "flow_title": "{host}"
   },
   "options": {
     "step": {
@@ -32,6 +58,10 @@
         "data": {
           "auto_deploy": "Automatically (re)deploy the daemon over ADB",
           "extra_allowed_ips": "Extra IPs allowed to use the thermostat API (comma separated)"
+        },
+        "data_description": {
+          "auto_deploy": "Copy and start the local API daemon on the thermostat at startup and after it reboots. Turn off only if you manage the daemon yourself.",
+          "extra_allowed_ips": "Home Assistant's own IP is always allowed. Add other machines (e.g. a workstation) that may use the thermostat API directly."
         }
       }
     },
@@ -161,6 +191,32 @@
       "preflight": {
         "name": "Run pre-flight checks"
       }
+    }
+  },
+  "exceptions": {
+    "unreachable": {
+      "message": "The thermostat API is unreachable: {error}"
+    },
+    "redeploy_failed": {
+      "message": "The thermostat API is unreachable and redeploying the daemon failed: {error}"
+    },
+    "no_state_yet": {
+      "message": "The daemon has not seen the thermostat's state yet"
+    },
+    "command_rejected": {
+      "message": "The thermostat rejected the command {payload}: {error}"
+    },
+    "unsupported_mode": {
+      "message": "HVAC mode {mode} is not supported"
+    },
+    "fan_locked": {
+      "message": "Fan speed can only be changed in Heat or Cool mode (current mode: {mode})"
+    },
+    "deploy_failed": {
+      "message": "Could not deploy the daemon to the thermostat: {error}"
+    },
+    "checks_failed": {
+      "message": "Pre-flight checks failed: {checks}"
     }
   }
 }

@@ -1,0 +1,16 @@
+name: New thermostat firmware / device
+description: Pre-flight failed or "firmware changed" repair appeared
+labels: [firmware]
+body:
+  - type: textarea
+    id: preflight
+    attributes:
+      label: Pre-flight results
+      description: Copy the check list from the setup dialog or the diagnostics download.
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Thermostat model and wiring
+      placeholder: TL04-1, communicating (HA/HB) to Midea air handler

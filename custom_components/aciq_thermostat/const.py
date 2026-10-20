@@ -8,6 +8,7 @@ CONF_ADB_PORT = "adb_port"
 CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 
+DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
 DEFAULT_ADB_PORT = 5555
 DEFAULT_SCAN_INTERVAL = 30

@@ -9,19 +9,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.climate import (
-    ClimateEntity,
-    ClimateEntityFeature,
-    HVACAction,
-    HVACMode,
-)
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
 from .const import (
+    DOMAIN,
     DEV_AUTO,
     DEV_COOL,
     DEV_EMERGENCY_HEAT,
@@ -36,7 +33,12 @@ from .const import (
     PRESET_NONE,
     TEMP_STEP,
 )
+from .coordinator import AciqCoordinator
 from .entity import AciqEntity
+
+
+def _num(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 DEV_TO_HVAC = {
     DEV_OFF: HVACMode.OFF,
@@ -47,6 +49,8 @@ DEV_TO_HVAC = {
     DEV_FAN_ONLY: HVACMode.FAN_ONLY,
 }
 HVAC_TO_DEV = {v: k for k, v in DEV_TO_HVAC.items() if k != DEV_EMERGENCY_HEAT}
+
+PARALLEL_UPDATES = 1  # one command at a time to the thermostat
 
 
 async def async_setup_entry(
@@ -67,7 +71,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
     _attr_max_temp = MAX_TEMP
     _attr_target_temperature_step = TEMP_STEP
 
-    def __init__(self, coordinator) -> None:
+    def __init__(self, coordinator: AciqCoordinator) -> None:
         super().__init__(coordinator, "climate")
         self._last_on_mode = DEV_AUTO
         self._track_on_mode()
@@ -83,7 +87,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
 
     @property
     def _dev_mode(self) -> str:
-        return self.data.get("mode", "unknown")
+        return str(self.data.get("mode", "unknown"))
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
@@ -104,22 +108,22 @@ class AciqClimate(AciqEntity, ClimateEntity):
 
     @property
     def current_temperature(self) -> float | None:
-        return self.data.get("current_temp")
+        return _num(self.data.get("current_temp"))
 
     @property
     def current_humidity(self) -> float | None:
-        return self.data.get("humidity")
+        return _num(self.data.get("humidity"))
 
     @property
     def target_temperature(self) -> float | None:
         if self.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE:
-            return self.data.get("setpoint")
+            return _num(self.data.get("setpoint"))
         return None
 
     @property
     def fan_mode(self) -> str | None:
         fan = self.data.get("fan")
-        return fan if fan in FAN_MODES else None
+        return fan if isinstance(fan, str) and fan in FAN_MODES else None
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -155,12 +159,18 @@ class AciqClimate(AciqEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode not in HVAC_TO_DEV:
-            raise HomeAssistantError(f"Unsupported mode {hvac_mode}")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="unsupported_mode",
+                translation_placeholders={"mode": str(hvac_mode)},
+            )
         await self.coordinator.async_control({"mode": HVAC_TO_DEV[hvac_mode]})
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         if self._dev_mode not in FAN_ADJUSTABLE_MODES:
-            raise HomeAssistantError(f"Fan speed can only be changed in heat or cool (now {self._dev_mode})")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="fan_locked",
+                translation_placeholders={"mode": self._dev_mode},
+            )
         await self.coordinator.async_control({"fan": fan_mode})
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:

@@ -1,0 +1,112 @@
+"""A simulated TL04-1 adbd: answers the shell commands the deployer sends."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import hashlib
+from typing import Any
+
+from custom_components.aciq_thermostat.const import VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
+from custom_components.aciq_thermostat.deployer import DAEMON_LOCAL_PATH
+
+BUNDLED_SHA = hashlib.sha256(DAEMON_LOCAL_PATH.read_bytes()).hexdigest()
+
+
+@dataclass
+class FakeThermostat:
+    firmware: str = VERIFIED_FIRMWARE
+    dev_app_sha: str = VERIFIED_DEV_APP_SHA256
+    serial: str = "00004452017200021B6111301619CKS4"
+    uid: str = "0"
+    daemon_pid: str = ""
+    daemon_sha: str = ""
+    daemon_cmdline: str = ""
+    new_file_sha: str = ""
+    connect_ok: bool = True
+    connect_raises: int = 0  # number of connect attempts that raise
+    push_corrupts: bool = False
+    start_fails: bool = False
+    local_ip: str = "10.0.0.2"
+    commands: list[str] = field(default_factory=list)
+    pushes: int = 0
+
+    def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
+        return FakeAdb(self)
+
+
+class _Writer:
+    def __init__(self, ip: str) -> None:
+        self.ip = ip
+
+    def get_extra_info(self, key: str) -> tuple[str, int]:
+        return (self.ip, 50000)
+
+
+class FakeAdb:
+    def __init__(self, t: FakeThermostat) -> None:
+        self.t = t
+        self._io_manager = type("IO", (), {})()
+        self._io_manager._transport = type("T", (), {})()
+        self._io_manager._transport._writer = _Writer(t.local_ip)
+
+    async def connect(self, **kwargs: Any) -> bool:
+        if self.t.connect_raises > 0:
+            self.t.connect_raises -= 1
+            raise ConnectionError("simulated stall")
+        return self.t.connect_ok
+
+    async def close(self) -> None:
+        return None
+
+    async def push(self, local: str, remote: str, **kwargs: Any) -> None:
+        self.t.pushes += 1
+        self.t.new_file_sha = "0" * 64 if self.t.push_corrupts else BUNDLED_SHA
+
+    async def shell(self, cmd: str, **kwargs: Any) -> str:  # noqa: C901 - a dispatch table
+        t = self.t
+        t.commands.append(cmd)
+        if cmd == "id -u":
+            return t.uid
+        if "DISTRIB_ID" in cmd:
+            return t.firmware
+        if "sha256sum /usr/bin/dev_app" in cmd:
+            return f"{t.dev_app_sha}  /usr/bin/dev_app"
+        if cmd == "pidof dev_app":
+            return "1668"
+        if "/proc/sysvipc/msg" in cmd:
+            return "12"
+        if "RAC_DEV_AHU3_STATE" in cmd:
+            return "5"
+        if "netstat" in cmd:
+            return "1" if t.daemon_pid else "0"
+        if cmd == "cat /tmp/.sn 2>/dev/null":
+            return t.serial
+        if cmd == "pidof thermostat_api":
+            return t.daemon_pid
+        if "sha256sum /tmp/thermostat_api.new" in cmd:
+            return f"{t.new_file_sha}  /tmp/thermostat_api.new"
+        if "sha256sum /tmp/thermostat_api" in cmd:
+            return f"{t.daemon_sha}  /tmp/thermostat_api" if t.daemon_sha else ""
+        if "/cmdline" in cmd:
+            return t.daemon_cmdline
+        if cmd.startswith("rm -f"):
+            return ""
+        if cmd.startswith("P=$(pidof thermostat_api)"):
+            if "mv -f" in cmd:
+                t.daemon_sha = t.new_file_sha
+            if t.start_fails:
+                t.daemon_pid = ""
+            else:
+                t.daemon_pid = "4242"
+                t.daemon_cmdline = cmd.rsplit("&& ", 1)[1].split(" >/dev/null")[0]
+            return ""
+        if "kill" in cmd:
+            t.daemon_pid = ""
+            return ""
+        if "firmware_version" in cmd:
+            return "LD:1.2.60"
+        if "hw_version" in cmd:
+            return "V4.3"
+        if "dev_version_info" in cmd:
+            return "00AC000111171171000066111008\n00AC000111171\n1000"
+        raise AssertionError(f"unexpected command: {cmd}")

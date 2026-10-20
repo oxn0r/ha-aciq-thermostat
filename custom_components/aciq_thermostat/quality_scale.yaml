@@ -1,0 +1,69 @@
+# Integration Quality Scale self-assessment (rules as of HA 2026.x).
+# Official tiers are only awarded to core integrations; this documents compliance.
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: No custom actions; standard climate/button actions only.
+  appropriate-polling: done            # 30 s DataUpdateCoordinator
+  brands: done                         # brand/icon.png, brand/icon@2x.png
+  common-modules: done                 # coordinator.py, entity.py
+  config-flow: done
+  config-flow-test-coverage: done      # tests/test_flows.py, tests/test_integration.py
+  dependency-transparency: done        # adb-shell (PyPI, Apache-2.0)
+  docs-actions: done
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  entity-event-setup:
+    status: exempt
+    comment: No event subscriptions; coordinator only.
+  entity-unique-id: done               # thermostat serial + key
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done          # ADB pre-flight in config flow
+  test-before-setup: done              # deploy + first refresh raise ConfigEntryNotReady
+  unique-config-entry: done            # unique_id = thermostat serial
+  # Silver
+  action-exceptions: done              # ServiceValidationError / HomeAssistantError
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable: done           # coordinator logs once on loss and recovery
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: The device has no credentials (unauthenticated ADB / allowlisted local API).
+  test-coverage: done                  # >95 %, enforced in CI
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery: done                      # DHCP hostname midea_* + Midea Wi-Fi OUI 54:92:6A
+  discovery-update-info: done          # DHCP updates the host of a known serial
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: One thermostat per config entry; no sub-devices.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done     # T1, Wi-Fi signal, raw auto state
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done              # icons.json
+  reconfiguration-flow: done
+  repair-issues: done                  # firmware_unverified, deploy_failed
+  stale-devices:
+    status: exempt
+    comment: Single static device per entry.
+  # Platinum
+  async-dependency: done               # adb-shell async API
+  inject-websession: done              # HA aiohttp session for the local API
+  strict-typing: done                  # mypy --strict in CI

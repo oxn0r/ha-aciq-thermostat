@@ -2,6 +2,8 @@ name: Validate
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 jobs:
   hassfest:
@@ -22,8 +24,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install pytest-homeassistant-custom-component "adb-shell[async]==0.4.4"
-      - run: pytest -q --ignore=tests/live
+      - run: pip install pytest-homeassistant-custom-component "adb-shell[async]>=0.4.4" mypy pytest-cov
+      - name: Strict typing
+        run: mypy
+      - name: Tests (>=95% coverage)
+        run: pytest -q --ignore=tests/live --cov --cov-fail-under=95
   daemon:
     runs-on: ubuntu-latest
     steps:
@@ -31,4 +36,10 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - run: daemon/build.sh --check
+      - name: Reproducible build matches bundled binary
+        run: daemon/build.sh --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: thermostat_api-linux-build
+          path: daemon/build/thermostat_api

@@ -5,6 +5,12 @@
     "@oxn0r"
   ],
   "config_flow": true,
+  "dhcp": [
+    {
+      "hostname": "midea_*",
+      "macaddress": "54926A*"
+    }
+  ],
   "documentation": "https://github.com/oxn0r/ha-aciq-thermostat",
   "integration_type": "device",
   "iot_class": "local_polling",
@@ -14,7 +20,7 @@
     "adb_shell"
   ],
   "requirements": [
-    "adb-shell[async]==0.4.4"
+    "adb-shell[async]>=0.4.4"
   ],
   "version": "1.0.0"
 }

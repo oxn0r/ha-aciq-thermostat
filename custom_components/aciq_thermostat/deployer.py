@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 import re
 import shlex
+from typing import Any
 
 from adb_shell.adb_device_async import AdbDeviceTcpAsync
 from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeoutException
@@ -68,7 +69,7 @@ class PreflightResult:
             for c in self.checks
         )
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return {"serial": self.serial, "firmware": self.firmware,
                 "passed": self.passed, "checks": [asdict(c) for c in self.checks]}
 
@@ -165,7 +166,8 @@ class Deployer:
         """Our address as the thermostat sees it (from the live ADB socket)."""
         try:
             writer = dev._io_manager._transport._writer  # adb-shell 0.4.4 internals
-            return writer.get_extra_info("sockname")[0]
+            sockname = writer.get_extra_info("sockname")
+            return str(sockname[0]) if sockname else None
         except (AttributeError, TypeError, IndexError):
             return None
 

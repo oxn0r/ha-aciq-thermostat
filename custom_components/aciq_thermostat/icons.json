@@ -1,0 +1,123 @@
+{
+  "entity": {
+    "climate": {
+      "thermostat": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "mdi:thermostat",
+              "emergency_heat": "mdi:fire-alert"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "setpoint": {
+        "default": "mdi:thermostat"
+      },
+      "mode": {
+        "default": "mdi:hvac",
+        "state": {
+          "off": "mdi:power",
+          "auto": "mdi:thermostat-auto",
+          "cool": "mdi:snowflake",
+          "heat": "mdi:fire",
+          "fan_only": "mdi:fan",
+          "emergency_heat": "mdi:fire-alert"
+        }
+      },
+      "fan_setting": {
+        "default": "mdi:fan",
+        "state": {
+          "auto": "mdi:fan-auto",
+          "low": "mdi:fan-speed-1",
+          "medium": "mdi:fan-speed-2",
+          "high": "mdi:fan-speed-3"
+        }
+      },
+      "outdoor_temperature": {
+        "default": "mdi:home-thermometer-outline"
+      },
+      "indoor_coil_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "outdoor_coil_temperature": {
+        "default": "mdi:coolant-temperature"
+      },
+      "indoor_unit_t1": {
+        "default": "mdi:thermometer-lines"
+      },
+      "compressor_frequency": {
+        "default": "mdi:sine-wave"
+      },
+      "blower_stage": {
+        "default": "mdi:fan-chevron-up"
+      },
+      "fault_codes": {
+        "default": "mdi:alert-circle-outline",
+        "state": {
+          "none": "mdi:check-circle-outline"
+        }
+      },
+      "wifi_signal": {
+        "default": "mdi:wifi"
+      },
+      "firmware": {
+        "default": "mdi:chip"
+      },
+      "indoor_unit_firmware": {
+        "default": "mdi:chip"
+      },
+      "auto_state": {
+        "default": "mdi:information-outline"
+      }
+    },
+    "binary_sensor": {
+      "compressor": {
+        "default": "mdi:heat-pump-outline",
+        "state": {
+          "on": "mdi:heat-pump"
+        }
+      },
+      "furnace": {
+        "default": "mdi:fire-off",
+        "state": {
+          "on": "mdi:fire"
+        }
+      },
+      "blower": {
+        "default": "mdi:fan-off",
+        "state": {
+          "on": "mdi:fan"
+        }
+      },
+      "aux_heat_allowed": {
+        "default": "mdi:radiator-off",
+        "state": {
+          "on": "mdi:radiator"
+        }
+      },
+      "emergency_heat": {
+        "default": "mdi:fire-alert"
+      },
+      "power": {
+        "default": "mdi:power"
+      },
+      "control_enabled": {
+        "default": "mdi:shield-check",
+        "state": {
+          "off": "mdi:shield-off"
+        }
+      }
+    },
+    "button": {
+      "redeploy": {
+        "default": "mdi:cloud-upload-outline"
+      },
+      "preflight": {
+        "default": "mdi:clipboard-check-outline"
+      }
+    }
+  }
+}

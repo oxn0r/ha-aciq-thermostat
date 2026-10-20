@@ -1,0 +1,22 @@
+name: Release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check manifest version matches tag
+        run: |
+          v=$(jq -r .version custom_components/aciq_thermostat/manifest.json)
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "manifest $v != tag ${GITHUB_REF_NAME}"; exit 1; }
+      - name: Build HACS zip
+        run: |
+          cd custom_components/aciq_thermostat
+          zip -r ../../aciq_thermostat.zip . -x '__pycache__/*'
+      - run: gh release upload "${GITHUB_REF_NAME}" aciq_thermostat.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

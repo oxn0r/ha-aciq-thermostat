@@ -23,7 +23,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
 from .const import FAN_MODES
+from .coordinator import AciqCoordinator
 from .entity import AciqEntity
+
+PARALLEL_UPDATES = 0  # coordinator-based, read-only
 
 MODES = ["off", "auto", "cool", "heat", "fan_only", "emergency_heat", "unknown"]
 
@@ -38,7 +41,7 @@ class AciqSensorDescription(SensorEntityDescription):
     needs_equipment: bool = False
 
 
-TEMP = dict(
+TEMP: dict[str, Any] = dict(
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
@@ -72,6 +75,7 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           **TEMP, needs_equipment=True, value_fn=_eq("outdoor_coil_temp")),
     AciqSensorDescription(key="indoor_unit_t1", translation_key="indoor_unit_t1", **TEMP,
                           entity_category=EntityCategory.DIAGNOSTIC,
+                          entity_registry_enabled_default=False,
                           needs_equipment=True, value_fn=_eq("indoor_unit_t1")),
     AciqSensorDescription(key="compressor_frequency", translation_key="compressor_frequency",
                           device_class=SensorDeviceClass.FREQUENCY,
@@ -88,6 +92,7 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
     # ---- diagnostics ----
     AciqSensorDescription(key="wifi_signal", translation_key="wifi_signal",
                           entity_category=EntityCategory.DIAGNOSTIC,
+                          entity_registry_enabled_default=False,
                           state_class=SensorStateClass.MEASUREMENT,
                           native_unit_of_measurement=PERCENTAGE,
                           value_fn=lambda d, eq: d.get("wifi_rssi")),
@@ -113,7 +118,7 @@ async def async_setup_entry(
 class AciqSensor(AciqEntity, SensorEntity):
     entity_description: AciqSensorDescription
 
-    def __init__(self, coordinator, desc: AciqSensorDescription) -> None:
+    def __init__(self, coordinator: AciqCoordinator, desc: AciqSensorDescription) -> None:
         super().__init__(coordinator, desc.key)
         self.entity_description = desc
 
