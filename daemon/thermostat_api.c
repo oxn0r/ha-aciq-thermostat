@@ -102,6 +102,7 @@ struct thermostat_state {
     int elec_heat;
     int elec_heat_only;
     int dev_wind;
+    int state_from_memory;  /* 1 = dev fields filled from dev_app memory (cold start) */
     /* meiju UI values */
     float ui_heat_sp;
     float ui_cool_sp;
@@ -260,12 +261,18 @@ void parse_log_file(const char *filename, struct thermostat_state *state) {
     fclose(f);
 }
 
+struct equipment;
+static void read_equipment(struct equipment *eq);
+static void fill_from_memory(struct thermostat_state *state);
+
 /* Get current thermostat state */
 void get_state(struct thermostat_state *state) {
     *state = cached_state;
     parse_log_file(LOG_FILE_OLD, state);
     parse_log_file(LOG_FILE, state);
     /* No dev_app setpoint seen yet: fall back to the UI's heat setpoint */
+    if (!state->have_dev_state)
+        fill_from_memory(state);  /* cold start: no AHU3 line in the log window yet */
     if (!state->have_dev_state && state->setpoint == 0 && state->ui_heat_sp > 0)
         state->setpoint = state->ui_heat_sp;
     cached_state = *state;
@@ -298,6 +305,8 @@ struct equipment {
     int t4, t1, t2a, t3;           /* raw: degC = (raw - 40) / 2; 0/255 = invalid */
     int compressor_hz, furnace_on, blower_on, blower_speed;
     int fault[4], fault_state, protect_state;
+    /* current settings (state_setting), used when no AHU3 log line was seen yet */
+    int set_power, set_mode, set_wind, set_temp, set_aux, set_aux_alone;
 };
 
 static pid_t find_pid(const char *name) {
@@ -348,6 +357,29 @@ static void read_equipment(struct equipment *eq) {
     eq->blower_speed = b[298] | (b[299] << 8);
     eq->compressor_hz = b[304];
     eq->furnace_on = b[307];
+    eq->set_aux_alone = b[87];
+    eq->set_power = b[93];
+    eq->set_mode = b[94];
+    eq->set_wind = b[97];
+    eq->set_temp = b[98];
+    eq->set_aux = b[107];
+}
+
+static void fill_from_memory(struct thermostat_state *state) {
+    struct equipment eq;
+    read_equipment(&eq);
+    /* sanity: mode in the known set, setpoint inside device limits */
+    if (!eq.ok || eq.set_temp < 60 || eq.set_temp > 86) return;
+    if (eq.set_mode != 1 && eq.set_mode != 2 && eq.set_mode != 4 && eq.set_mode != 5) return;
+    state->have_dev_state = 1;
+    state->state_from_memory = 1;
+    state->dev_power = eq.set_power ? 1 : 0;
+    state->dev_mode = eq.set_mode;
+    state->dev_temp_set = (float)eq.set_temp;
+    state->setpoint = (float)eq.set_temp;
+    state->dev_wind = eq.set_wind <= 3 ? eq.set_wind : -1;
+    state->elec_heat = eq.set_aux ? 1 : 0;
+    state->elec_heat_only = eq.set_aux_alone ? 1 : 0;
 }
 
 /* raw 0xC0 temperature -> "%.1f" degF or "null" */
@@ -426,14 +458,14 @@ int build_state_json(char *buf, size_t bufsize) {
         "  \"firmware\": \"%s\",\n"
         "  \"control_enabled\": %s,\n"
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
-        "\"temp_set\": %.1f, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
+        "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
         "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f},\n"
         "  \"equipment\": %s\n"
         "}\n",
         state.current_temp,
         state.humidity,
         hvac_mode_string(&state),
-        fan_string(state.dev_wind),
+        state.have_dev_state ? fan_string(state.dev_wind) : "unknown",
         state.mode,
         state.setpoint,
         state.heat_limit,
@@ -446,7 +478,7 @@ int build_state_json(char *buf, size_t bufsize) {
         firmware_id,
         control_enabled ? "true" : "false",
         state.have_dev_state ? "true" : "false", state.dev_power, state.dev_mode,
-        state.dev_auto_state, state.dev_temp_set, state.zone_lower, state.zone_upper,
+        state.dev_auto_state, state.state_from_memory ? "memory" : "log", state.dev_temp_set, state.zone_lower, state.zone_upper,
         state.elec_heat, state.elec_heat_only, state.dev_wind,
         state.ui_heat_sp, state.ui_cool_sp,
         equip_json

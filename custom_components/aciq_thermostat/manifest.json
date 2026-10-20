@@ -1,6 +1,10 @@
 {
   "domain": "aciq_thermostat",
   "name": "ACiQ Thermostat (Local)",
+  "categories": [
+    "climate.thermostats_heating",
+    "climate.heat_pumps_air_conditioning"
+  ],
   "codeowners": [
     "@oxn0r"
   ],

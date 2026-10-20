@@ -8,4 +8,5 @@ First release.
 - Equipment sensors: outdoor temperature, indoor/outdoor coil temperatures, compressor frequency and running state,
   **furnace burning**, blower state and stage, fault state and codes.
 - Firmware guard with Repairs issue, translated errors, icon translations, diagnostics.
+- Cold-start state from `dev_app` memory, so entities are available right after a thermostat reboot.
 - Built on [jeffmcfadden/midea-thermostat](https://github.com/jeffmcfadden/midea-thermostat).
