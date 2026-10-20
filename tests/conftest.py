@@ -66,6 +66,8 @@ def mock_deployer():
               AsyncMock(return_value=passing_preflight())) as pre,
         patch("custom_components.aciq_thermostat.deployer.Deployer.ensure_daemon",
               AsyncMock(return_value="already running")) as ens,
+        patch("custom_components.aciq_thermostat.deployer.Deployer.sync_clock",
+              AsyncMock(return_value={"offset_s": 0.3, "corrected": False})),
         patch("custom_components.aciq_thermostat.deployer.Deployer.read_versions",
               AsyncMock(return_value={"screen_firmware": "LD:1.2.60", "hardware": "V4.3",
                                       "indoor_unit_firmware": "00AC000111171171000066111008"})),

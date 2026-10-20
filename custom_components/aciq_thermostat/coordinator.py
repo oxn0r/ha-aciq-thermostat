@@ -36,10 +36,13 @@ from .const import (
     CONF_ADB_PORT,
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
+    CONF_SYNC_CLOCK,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
+    CLOCK_CHECK_INTERVAL,
+    CLOCK_MAX_OFFSET,
     DEPLOY_MIN_INTERVAL,
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
@@ -84,7 +87,7 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m" if h else (f"{m}m{sec:02d}s" if m else f"{sec}s")
 
 
-RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS})
+RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK})
 
 
 def explain_deploy(detail: dict[str, Any], uptime: float | None, trigger: str) -> str:
@@ -141,6 +144,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lp_task: asyncio.Task[None] | None = None
         self.egress_verified_at: datetime | None = None
         self.last_deploy_detail: dict[str, Any] = {}
+        self.clock: dict[str, Any] = {}            # last check: offset_s, corrected, time, ...
+        self._clock_check_due = True               # at setup, after reboots/redeploys, every 6 h
+        self._clock_task: asyncio.Task[None] | None = None
         # options the running setup was built with; changes to only runtime options
         # (block_egress) are applied live instead of reloading the entry
         self.options_snapshot: dict[str, Any] = dict(entry.options)
@@ -213,7 +219,45 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.block_egress:
             self.egress_verified_at = dt_util.utcnow()   # applied as part of the deploy
             self._egress_check_due = False
+        if detail.get("action") != "already_running":
+            self._clock_check_due = True             # fresh boot/daemon: check the clock soon
         return result
+
+    # --------------------------------------------------------------- clock
+
+    @property
+    def sync_clock_enabled(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_SYNC_CLOCK, True))
+
+    def _maybe_check_clock(self) -> None:
+        if not self.sync_clock_enabled or not self.auto_deploy:
+            return
+        last = self.clock.get("checked_at")
+        due = self._clock_check_due or last is None or (
+            (dt_util.utcnow() - last).total_seconds() > CLOCK_CHECK_INTERVAL)
+        if not due or (self._clock_task is not None and not self._clock_task.done()):
+            return
+        self._clock_check_due = False
+        self._clock_task = self.config_entry.async_create_background_task(
+            self.hass, self.async_check_clock(), f"{DOMAIN} clock check {self.host}")
+
+    async def async_check_clock(self) -> None:
+        """Compare the thermostat clock with HA's and correct it if it drifted."""
+        try:
+            res = await self.deployer.sync_clock(CLOCK_MAX_OFFSET, correct=self.sync_clock_enabled)
+        except DeployError as err:
+            _LOGGER.debug("Clock check on %s skipped: %s", self.host, err)
+            self._clock_check_due = True
+            return
+        self.clock = {**res, "checked_at": dt_util.utcnow(),
+                      **({"last_correction": dt_util.utcnow(), "last_correction_offset_s": res["offset_s"]}
+                         if res.get("corrected") else
+                         {k: v for k, v in self.clock.items() if k.startswith("last_correction")})}
+        if res.get("corrected"):
+            self._event("clock_corrected", offset_s=res["offset_s"], after_s=res.get("offset_after_s"))
+            _LOGGER.info("Thermostat clock on %s was off by %+.1f s; corrected to Home Assistant's time "
+                         "(now %+.1f s)", self.host, res["offset_s"], res.get("offset_after_s", 0.0))
+        self.async_update_listeners()
 
     # ------------------------------------------------------------- egress
 
@@ -260,6 +304,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                    if new_opts.get(k) != self.options_snapshot.get(k)}
         if new_data != self.data_snapshot or changed - RUNTIME_OPTIONS:
             return True
+        if CONF_SYNC_CLOCK in changed and new_opts.get(CONF_SYNC_CLOCK, True):
+            self._clock_check_due = True              # turned on: check at the next update
         if CONF_BLOCK_EGRESS in changed:
             # changed from the Configure dialog (the switch updates the snapshot itself)
             self.config_entry.async_create_background_task(
@@ -482,7 +528,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.warning("Thermostat %s rebooted (uptime %s)", self.host, _fmt_duration(secs))
                     self._event("reboot", uptime_s=secs)
                     self._egress_check_due = True
+                    self._clock_check_due = True
         self._maybe_verify_egress()
+        self._maybe_check_clock()
 
     # --------------------------------------------------------------- control
 

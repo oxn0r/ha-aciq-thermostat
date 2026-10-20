@@ -36,6 +36,7 @@ class FakeThermostat:
     children: list[int] = field(default_factory=list)   # long-poll children (ppid = daemon)
     strays: list[int] = field(default_factory=list)     # thermostat_api not under the daemon (ppid 1)
     killed: list[int] = field(default_factory=list)
+    clock_skew: float = 0.0                              # thermostat clock minus real time (s)
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -72,6 +73,13 @@ class FakeAdb:
     async def shell(self, cmd: str, **kwargs: Any) -> str:  # noqa: C901 - a dispatch table
         t = self.t
         t.commands.append(cmd)
+        if cmd == "date -u +%s":
+            import time as _t
+            return str(int(_t.time() + t.clock_skew))
+        if cmd.startswith("date -u -s @"):
+            import time as _t
+            t.clock_skew = int(cmd.split("@")[1].split()[0]) - _t.time()
+            return ""
         if "/proc/uptime" in cmd:
             return t.uptime
         if cmd.startswith("ip -4 -o addr show wlan0"):

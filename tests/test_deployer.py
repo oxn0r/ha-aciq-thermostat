@@ -255,3 +255,34 @@ async def test_deploy_causes(thermo: FakeThermostat) -> None:
     assert d.last_deploy_detail["cause"] == "build_changed" and d.last_deploy_detail["action"] == "upgraded"
     await d.ensure_daemon(["10.0.0.9"], force=True)
     assert d.last_deploy_detail["cause"] == "forced"
+
+
+async def test_clock_in_sync_not_touched(thermo: FakeThermostat) -> None:
+    res = await Deployer("h", 5555).sync_clock(2.0)
+    assert res["corrected"] is False and abs(res["offset_s"]) < 1.6
+    assert not any(c.startswith("date -u -s") for c in thermo.commands)
+
+
+async def test_clock_corrected_when_off(thermo: FakeThermostat) -> None:
+    thermo.clock_skew = -36000.0                       # 10 h behind (like the RTC after a reboot)
+    res = await Deployer("h", 5555).sync_clock(2.0)
+    assert res["corrected"] is True and res["offset_s"] < -35000
+    assert abs(res["offset_after_s"]) < 1.6 and abs(thermo.clock_skew) < 1.6
+
+
+async def test_clock_measure_only(thermo: FakeThermostat) -> None:
+    thermo.clock_skew = 30.0
+    res = await Deployer("h", 5555).sync_clock(2.0, correct=False)
+    assert res["corrected"] is False and res["offset_s"] > 28 and thermo.clock_skew == 30.0
+
+
+async def test_clock_refuses_when_our_clock_unset(thermo: FakeThermostat) -> None:
+    with patch("custom_components.aciq_thermostat.deployer.time.time", return_value=1000.0):
+        with pytest.raises(DeployError, match="unset"):
+            await Deployer("h", 5555).sync_clock(2.0)
+
+
+async def test_egress_allows_ntp(thermo: FakeThermostat) -> None:
+    await Deployer("h", 5555).ensure_daemon([], block_egress=True)
+    i_ntp = next(i for i, r in enumerate(thermo.egress_chain) if "--dport 123" in r)
+    assert i_ntp < len(thermo.egress_chain) - 1          # before the final DROP

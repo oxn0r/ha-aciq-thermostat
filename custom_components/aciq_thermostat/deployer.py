@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 import re
 import shlex
+import time
 from typing import Any
 
 from adb_shell.adb_device_async import AdbDeviceTcpAsync
@@ -223,6 +224,7 @@ class Deployer:
         # open (own LAN, any RFC1918 subnet/VLAN, link-local, CGNAT/Tailscale), plus
         # explicitly allowlisted IPs, broadcast and multicast.
         rules = ["-o lo -j RETURN",
+                 "-p udp --dport 123 -j RETURN",      # NTP: let a router-side NTP intercept answer
                  *(f"-d {net} -j RETURN" for net in (lan, *LOCAL_NETS)),
                  *(f"-d {shlex.quote(ip)} -j RETURN" for ip in allow_ips),
                  "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"]
@@ -239,6 +241,36 @@ class Deployer:
             raise DeployError(f"egress filter failed: {out[-200:]}")
         drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
         self.last_egress = {"enabled": True, "lan": lan, "dropped_packets": int(drops) if drops.isdigit() else None}
+
+    async def _device_epoch(self, dev: AdbDeviceTcpAsync) -> tuple[float, float]:
+        """(thermostat time, reference time at the same instant). `date +%s` truncates to whole
+        seconds, so +0.5 s is the best estimate; the reference is the RTT midpoint."""
+        t0 = time.time()
+        out = await self._sh(dev, "date -u +%s")
+        t1 = time.time()
+        if not out.isdigit():
+            raise DeployError(f"unexpected clock reading {out!r}")
+        return int(out) + 0.5, (t0 + t1) / 2
+
+    async def sync_clock(self, max_offset: float, correct: bool = True) -> dict[str, Any]:
+        """Measure the thermostat clock against ours; set it (runtime only, `date -s`) if off by
+        >= max_offset. Returns {"offset_s", "corrected", "offset_after_s"}."""
+        if time.time() < 1735689600:   # 2025-01-01: our own clock isn't trustworthy
+            raise DeployError("Home Assistant's clock looks unset; not touching the thermostat clock")
+        async with self._lock:
+            dev = await self._session()
+            try:
+                dev_t, ref_t = await self._device_epoch(dev)
+                offset = round(dev_t - ref_t, 1)
+                result: dict[str, Any] = {"offset_s": offset, "corrected": False}
+                if correct and abs(offset) >= max_offset:
+                    target = int(round(time.time() + 0.05))      # ~half an ADB round trip ahead
+                    await self._sh(dev, f"date -u -s @{target} >/dev/null")
+                    dev_t2, ref_t2 = await self._device_epoch(dev)
+                    result.update(corrected=True, offset_after_s=round(dev_t2 - ref_t2, 1))
+                return result
+            finally:
+                await dev.close()
 
     async def verify_egress(self, enable: bool, extra_ips: list[str]) -> str:
         """Confirm the runtime egress rule matches `enable`; (re)apply or remove if not.

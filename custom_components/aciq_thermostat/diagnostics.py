@@ -25,6 +25,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "bundled_daemon_sha256": await hass.async_add_executor_job(bundled_daemon_sha256),
         "last_deploy_result": c.last_deploy_result,
         "last_deploy": c.last_deploy_detail,
+        "clock": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.clock.items()},
         "versions": c.versions,
         "long_poll_supported": c.long_poll_supported,
         "egress_filter": c.deployer.last_egress,

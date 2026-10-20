@@ -130,6 +130,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Option | Default | Description |
 |---|---|---|
 | Automatically (re)deploy the daemon | on | Deploy at startup and after thermostat reboots |
+| Keep the thermostat clock in sync with Home Assistant | on | Corrects drift ≥ 2 s after reboots and every 6 h (the thermostat can't use NTP with its internet blocked) |
 | Block the thermostat's internet at the source | off | Runtime firewall rule on the thermostat: only LAN/HA traffic leaves it (see [Router flooded](#router-flooded-with-dns-lookups)) |
 | Extra allowed IPs | (empty) | Other hosts allowed to use the API directly (HA's own IP is always allowed) |
 
@@ -150,7 +151,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Run pre-flight checks | button | maintenance |
-| Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
+| Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Clock offset · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
 
 The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
 
@@ -238,7 +239,7 @@ firewall rule on the thermostat drops everything except your LAN and Home Assist
 router. It's re-applied after reboots and removed when you turn it off. There's also a **Block cloud traffic** switch on
 the device page for one-tap on/off.
 
-Only public internet destinations are dropped. Local traffic is never filtered: your LAN, every private range
+Only public internet destinations are dropped (NTP on UDP 123 is let through so a router-side NTP intercept can answer). Local traffic is never filtered: your LAN, every private range
 (10/8, 172.16/12, 192.168/16), link-local, 100.64/10 (VPNs such as Tailscale), Home Assistant, broadcast and multicast.
 The rule lives in the thermostat's memory only, so a power cycle always clears it. The integration verifies it after
 every reboot and every 30 minutes.

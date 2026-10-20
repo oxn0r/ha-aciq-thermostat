@@ -17,6 +17,7 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfFrequency,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -119,6 +120,14 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           entity_category=EntityCategory.DIAGNOSTIC,
                           entity_registry_enabled_default=False,
                           value_fn=lambda d, eq: _auto_state(d)),
+    AciqSensorDescription(key="clock_offset", translation_key="clock_offset",
+                          device_class=SensorDeviceClass.DURATION,
+                          native_unit_of_measurement=UnitOfTime.SECONDS,
+                          state_class=SensorStateClass.MEASUREMENT,
+                          suggested_display_precision=1,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: None,
+                          coord_fn=lambda c: c.clock.get("offset_after_s", c.clock.get("offset_s"))),
     AciqSensorDescription(key="last_boot", translation_key="last_boot",
                           device_class=SensorDeviceClass.TIMESTAMP,
                           entity_category=EntityCategory.DIAGNOSTIC,
@@ -160,6 +169,16 @@ class AciqSensor(AciqEntity, SensorEntity):
         key = self.entity_description.key
         if key == "indoor_unit_firmware":
             return self.coordinator.versions or None
+        if key == "clock_offset":
+            c = self.coordinator.clock
+            if not c:
+                return None
+            def _iso(v: Any) -> Any:
+                return v.isoformat() if hasattr(v, "isoformat") else v
+            return {"measured_offset_s": c.get("offset_s"), "last_checked": _iso(c.get("checked_at")),
+                    "last_correction": _iso(c.get("last_correction")),
+                    "last_correction_offset_s": c.get("last_correction_offset_s"),
+                    "sync_enabled": self.coordinator.sync_clock_enabled}
         if key == "daemon_started":
             d = self.coordinator.last_deploy_detail
             if not d:

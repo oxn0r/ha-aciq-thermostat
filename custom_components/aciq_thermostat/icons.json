@@ -83,6 +83,9 @@
       },
       "daemon_started": {
         "default": "mdi:api"
+      },
+      "clock_offset": {
+        "default": "mdi:clock-check-outline"
       }
     },
     "binary_sensor": {

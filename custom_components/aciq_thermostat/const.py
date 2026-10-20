@@ -8,6 +8,7 @@ CONF_ADB_PORT = "adb_port"
 CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
+CONF_SYNC_CLOCK = "sync_clock"
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
@@ -31,6 +32,10 @@ PROBE_TIMEOUT = 3
 DEPLOY_MIN_INTERVAL = 60
 # How often to confirm the egress rule is still in place (also after every reboot)
 EGRESS_VERIFY_INTERVAL = 1800
+# Thermostat clock: checked at setup, after reboots/redeploys and this often; corrected
+# when off by at least CLOCK_MAX_OFFSET seconds (date has 1 s resolution on the device)
+CLOCK_CHECK_INTERVAL = 6 * 3600
+CLOCK_MAX_OFFSET = 2.0
 
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"

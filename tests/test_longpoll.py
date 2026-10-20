@@ -522,3 +522,49 @@ async def test_switch_attributes(hass, aioclient_mock, mock_deployer, state) -> 
     e.runtime_data.async_update_listeners()
     attrs = hass.states.get("switch.thermostat_block_cloud_traffic").attributes
     assert attrs["rule_active"] is True and attrs["dropped_packets"] == 109 and attrs["last_verified"]
+
+
+async def test_clock_checked_at_setup_after_reboot_and_periodically(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    from datetime import timedelta
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.util import dt as dt_util
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.sync_clock",
+               AsyncMock(return_value={"offset_s": -2.4, "corrected": True, "offset_after_s": 0.2})) as sync:
+        caplog.set_level(logging.INFO)
+        e = await _setup(hass, aioclient_mock, _with(state, uptime_s=50000))
+        await hass.async_block_till_done()
+        c = e.runtime_data
+        assert sync.await_count == 1 and sync.call_args.kwargs["correct"] is True
+        assert "off by -2.4 s; corrected" in caplog.text
+        ent = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{SERIAL}_clock_offset")
+        st = hass.states.get(ent)
+        assert float(st.state) == pytest.approx(0.2) and st.attributes["last_correction_offset_s"] == -2.4
+        sync.return_value = {"offset_s": 0.4, "corrected": False}
+        c._track_times(_with(state, uptime_s=50060))          # nothing due
+        await hass.async_block_till_done()
+        assert sync.await_count == 1
+        c._track_times(_with(state, uptime_s=30))             # reboot -> check now
+        await hass.async_block_till_done()
+        assert sync.await_count == 2
+        c.clock["checked_at"] = dt_util.utcnow() - timedelta(hours=7)
+        c._track_times(_with(state, uptime_s=90))             # 6 h elapsed
+        await hass.async_block_till_done()
+        assert sync.await_count == 3
+        st = hass.states.get(ent)
+        assert st.attributes["last_correction_offset_s"] == -2.4   # last correction remembered
+
+
+async def test_clock_sync_option_off_and_failures(hass, aioclient_mock, mock_deployer, state) -> None:
+    from custom_components.aciq_thermostat.deployer import DeployError
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.sync_clock", AsyncMock()) as sync:
+        e = await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "sync_clock": False})
+        await hass.async_block_till_done()
+        sync.assert_not_awaited()
+        with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+            hass.config_entries.async_update_entry(e, options={**e.options, "sync_clock": True})
+            await hass.async_block_till_done()
+        reload.assert_not_awaited()                           # runtime option: no reload
+        sync.side_effect = DeployError("adb busy")
+        e.runtime_data._track_times(_with(state, uptime_s=5000))
+        await hass.async_block_till_done()
+        assert sync.await_count == 1 and e.runtime_data._clock_check_due is True

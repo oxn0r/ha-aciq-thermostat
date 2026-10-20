@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.5 — 2026-10-20
+### Added
+- **Thermostat clock kept in sync with Home Assistant** (option, on by default). With its internet blocked the
+  thermostat can't use NTP (its DNS for the NTP pool is blocked too), so its clock drifts, and after a reboot it
+  starts from a hardware clock that was found ~10 h off. Home Assistant measures the offset over ADB (RTT-compensated)
+  at setup, right after any reboot/redeploy and every 6 h, and corrects it with `date -s` when it's ≥ 2 s off.
+  Runtime only; never touches the hardware clock or any file; refuses to act if HA's own clock looks unset.
+  Verified on a TL04-1: −1.6 s → +0.2 s.
+- **Clock offset** diagnostic sensor (attributes: measured offset, last check, last correction).
+- *Block cloud traffic* now lets NTP (UDP 123) through, so a router-side NTP intercept (e.g. Firewalla) can answer if
+  you allow DNS for the NTP pool.
+
 ## 1.0.4 — 2026-10-20
 ### Fixed
 - **Toggling *Block cloud traffic* reloaded the integration** (≈3 s unavailable) and restarted the daemon. The switch
