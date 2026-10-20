@@ -49,6 +49,16 @@ DEV_EMERGENCY_HEAT = "emergency_heat"
 FAN_ADJUSTABLE_MODES = (DEV_COOL, DEV_HEAT)
 FAN_MODES = ["auto", "low", "medium", "high"]
 
+# dev_app auto_state_t (rac_msg.h): what Auto mode is currently doing
+AUTO_STATE_NAMES = {0: "none", 1: "cool", 2: "heat", 3: "dry", 4: "fan"}
+AUTO_STATE_COOL = 1
+AUTO_STATE_HEAT = 2
+AUTO_STATE_DRY = 3
+
+# Fallback when auto_state is unknown: indoor coil vs room temperature (degF)
+COIL_HEATING_DELTA = 15.0
+COIL_COOLING_DELTA = 10.0
+
 PRESET_NONE = "none"
 PRESET_EMERGENCY_HEAT = "emergency_heat"
 

@@ -152,7 +152,14 @@
         "name": "Firmware"
       },
       "auto_state": {
-        "name": "Auto state (raw)"
+        "name": "Auto state",
+        "state": {
+          "none": "None",
+          "cool": "Cooling",
+          "heat": "Heating",
+          "dry": "Drying",
+          "fan": "Fan"
+        }
       },
       "indoor_unit_firmware": {
         "name": "Indoor unit firmware"

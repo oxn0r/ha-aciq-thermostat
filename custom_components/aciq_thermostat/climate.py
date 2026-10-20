@@ -18,6 +18,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
 from .const import (
+    AUTO_STATE_COOL,
+    AUTO_STATE_DRY,
+    AUTO_STATE_HEAT,
+    COIL_COOLING_DELTA,
+    COIL_HEATING_DELTA,
     DOMAIN,
     DEV_AUTO,
     DEV_COOL,
@@ -74,11 +79,16 @@ class AciqClimate(AciqEntity, ClimateEntity):
     def __init__(self, coordinator: AciqCoordinator) -> None:
         super().__init__(coordinator, "climate")
         self._last_on_mode = DEV_AUTO
+        # last confirmed direction while the compressor runs in Auto (held when unknown)
+        self._auto_direction: HVACAction | None = None
+        self._action = HVACAction.IDLE
         self._track_on_mode()
+        self._action = self._compute_action()
 
     @callback
     def _handle_coordinator_update(self) -> None:
         self._track_on_mode()
+        self._action = self._compute_action()
         super()._handle_coordinator_update()
 
     def _track_on_mode(self) -> None:
@@ -127,24 +137,54 @@ class AciqClimate(AciqEntity, ClimateEntity):
 
     @property
     def hvac_action(self) -> HVACAction:
+        return self._action
+
+    def _compute_action(self) -> HVACAction:
+        """Derive what the equipment is doing from real equipment state.
+
+        Furnace burning -> heating. Compressor running -> direction from the mode;
+        in Auto from the thermostat's own auto_state, else from the indoor coil
+        temperature, else the last confirmed direction. Never from room vs setpoint
+        (Auto's deadband keeps the room on either side of the setpoint while running).
+        """
         mode = self._dev_mode
         if mode == DEV_OFF:
             return HVACAction.OFF
         eq = self.equipment
-        furnace = bool(eq.get("furnace_on"))
-        compressor = bool(eq.get("compressor_hz")) or bool(self.data.get("compressor_running"))
-        if furnace:
+        if eq.get("furnace_on"):
             return HVACAction.HEATING
+        compressor = bool(eq.get("compressor_hz")) or bool(self.data.get("compressor_running"))
         if compressor:
             if mode == DEV_COOL:
                 return HVACAction.COOLING
             if mode in (DEV_HEAT, DEV_EMERGENCY_HEAT):
                 return HVACAction.HEATING
-            cur, sp = self.data.get("current_temp"), self.data.get("setpoint")
-            return HVACAction.COOLING if cur is not None and sp is not None and cur > sp else HVACAction.HEATING
+            return self._auto_compressor_action(eq)
         if mode == DEV_FAN_ONLY or eq.get("blower_on"):
             return HVACAction.FAN
         return HVACAction.IDLE
+
+    def _auto_compressor_action(self, eq: dict[str, Any]) -> HVACAction:
+        auto_state = self.data.get("dev", {}).get("auto_state")
+        direction: HVACAction | None = None
+        if auto_state == AUTO_STATE_HEAT:
+            direction = HVACAction.HEATING
+        elif auto_state == AUTO_STATE_COOL:
+            direction = HVACAction.COOLING
+        elif auto_state == AUTO_STATE_DRY:
+            direction = HVACAction.DRYING
+        else:
+            coil, room = _num(eq.get("indoor_coil_temp")), _num(self.data.get("current_temp"))
+            if coil is not None and room is not None:
+                if coil - room >= COIL_HEATING_DELTA:
+                    direction = HVACAction.HEATING
+                elif room - coil >= COIL_COOLING_DELTA:
+                    direction = HVACAction.COOLING
+        if direction is not None:
+            self._auto_direction = direction
+            return direction
+        # unknown: keep the last confirmed direction rather than guessing
+        return self._auto_direction or HVACAction.IDLE
 
     # ------------------------------------------------------------- control
 

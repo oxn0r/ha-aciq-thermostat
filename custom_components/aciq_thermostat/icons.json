@@ -70,7 +70,13 @@
         "default": "mdi:chip"
       },
       "auto_state": {
-        "default": "mdi:information-outline"
+        "default": "mdi:thermostat-auto",
+        "state": {
+          "cool": "mdi:snowflake",
+          "heat": "mdi:fire",
+          "dry": "mdi:water-percent",
+          "fan": "mdi:fan"
+        }
       }
     },
     "binary_sensor": {

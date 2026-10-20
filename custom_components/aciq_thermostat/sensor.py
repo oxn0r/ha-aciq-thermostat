@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
-from .const import FAN_MODES
+from .const import AUTO_STATE_NAMES, FAN_MODES
 from .coordinator import AciqCoordinator
 from .entity import AciqEntity
 
@@ -103,9 +103,12 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=lambda d, eq: None),  # filled from coordinator.versions
     AciqSensorDescription(key="auto_state", translation_key="auto_state",
+                          device_class=SensorDeviceClass.ENUM,
+                          options=list(AUTO_STATE_NAMES.values()),
                           entity_category=EntityCategory.DIAGNOSTIC,
                           entity_registry_enabled_default=False,
-                          value_fn=lambda d, eq: d.get("dev", {}).get("auto_state")),
+                          value_fn=lambda d, eq: AUTO_STATE_NAMES.get(d.get("dev", {}).get("auto_state", 0),
+                                                                      "none")),
 )
 
 

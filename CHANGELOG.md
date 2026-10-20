@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.1 — 2026-10-20
+### Fixed
+- **hvac_action showed "cooling" while heating in Auto.** v1.0.0 guessed Auto's direction from room vs setpoint,
+  which flips whenever the room drifts across the setpoint inside Auto's deadband. The action now comes from the
+  equipment: the thermostat's own Auto state (`auto_state_t`: 1 cool, 2 heat, 3 dry, 4 fan, decoded from the
+  firmware and confirmed live), then the indoor coil vs room temperature (≥15 °F above → heating, ≥10 °F below → cooling),
+  then the last confirmed direction. Never room vs setpoint. Reported with readings from 2026-10-20 01:14–01:17 UTC.
+
+### Changed
+- "Auto state" diagnostic sensor now shows None / Cooling / Heating / Drying / Fan instead of a raw number.
+
 ## 1.0.0 — 2026-10-19
 First release.
 - Config flow with read-only ADB pre-flight checks, **DHCP discovery**, reconfigure and options.

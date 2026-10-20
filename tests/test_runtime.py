@@ -162,8 +162,6 @@ async def test_diagnostics(hass, aioclient_mock, mock_deployer, state) -> None:
         ("off", {}, 70, HVACAction.OFF),
         ("fan_only", {}, 70, HVACAction.FAN),
         ("cool", {"compressor_hz": 40}, 75, HVACAction.COOLING),
-        ("auto", {"compressor_hz": 40}, 75, HVACAction.COOLING),
-        ("auto", {"compressor_hz": 40}, 70, HVACAction.HEATING),
         ("emergency_heat", {"furnace_on": True}, 70, HVACAction.HEATING),
         ("heat", {"compressor_hz": 30}, 70, HVACAction.HEATING),
         ("auto", {"blower_on": False}, 72, HVACAction.IDLE),
