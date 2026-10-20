@@ -4,6 +4,8 @@
 ### Changed
 - "Aux heat allowed" moved to the device's diagnostic section (still enabled). It shows backup/furnace heat is
   *permitted* in the current mode (on in Heat), not that the furnace is burning; use the Furnace sensor for that.
+### Fixed
+- Furnace sensor showed "Normal"/"Hot" (Home Assistant's generic *heat* device class). It now reads **Off** / **Burning**.
 
 ## 1.0.1 — 2026-10-20
 ### Fixed

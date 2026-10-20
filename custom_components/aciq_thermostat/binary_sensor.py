@@ -33,8 +33,8 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
                           device_class=BinarySensorDeviceClass.RUNNING,
                           value_fn=lambda d, eq: bool(eq.get("compressor_hz")) or bool(d.get("compressor_running"))),
     # Verified 2026-10-19: aux_load_state = 1 exactly while the gas burners were lit
-    AciqBinaryDescription(key="furnace", translation_key="furnace",
-                          device_class=BinarySensorDeviceClass.HEAT, needs_equipment=True,
+    # No device class: HEAT would display off/on as "Normal"/"Hot"; translated as Off/Burning instead
+    AciqBinaryDescription(key="furnace", translation_key="furnace", needs_equipment=True,
                           value_fn=lambda d, eq: bool(eq.get("furnace_on"))),
     AciqBinaryDescription(key="blower", translation_key="blower",
                           device_class=BinarySensorDeviceClass.RUNNING, needs_equipment=True,

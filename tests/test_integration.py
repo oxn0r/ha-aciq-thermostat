@@ -181,3 +181,10 @@ async def test_aux_heat_allowed_is_enabled_diagnostic(hass: HomeAssistant, aiocl
     assert ent.entity_category is EntityCategory.DIAGNOSTIC
     assert ent.disabled_by is None
     assert hass.states.get("binary_sensor.thermostat_aux_heat_allowed").state == "off"
+
+
+async def test_furnace_sensor_states_and_no_heat_class(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:
+    state["equipment"]["furnace_on"] = True
+    await _setup(hass, aioclient_mock, state)
+    st = hass.states.get("binary_sensor.thermostat_furnace")
+    assert st.state == "on" and "device_class" not in st.attributes  # UI label comes from translations: Burning

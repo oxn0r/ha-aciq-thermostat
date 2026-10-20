@@ -170,7 +170,11 @@
         "name": "Compressor"
       },
       "furnace": {
-        "name": "Furnace"
+        "name": "Furnace",
+        "state": {
+          "off": "Off",
+          "on": "Burning"
+        }
       },
       "blower": {
         "name": "Blower"
