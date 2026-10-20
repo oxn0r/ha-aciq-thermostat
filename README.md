@@ -10,6 +10,7 @@
   <a href="https://github.com/oxn0r/ha-aciq-thermostat/actions/workflows/validate.yml"><img src="https://github.com/oxn0r/ha-aciq-thermostat/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
   <img src="https://img.shields.io/badge/quality%20scale-platinum%20rules-e5e4e2" alt="Follows the Platinum quality-scale rules">
   <img src="https://img.shields.io/badge/iot__class-local__polling-brightgreen" alt="Local polling">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/oxn0r/ha-aciq-thermostat" alt="MIT License"></a>
 </p>
 
 **Control your ACiQ thermostat from Home Assistant: locally, without the cloud.**
@@ -274,4 +275,4 @@ daemon/build.sh                                  # rebuild the daemon (official 
   data (outdoor temperature, coils, compressor, furnace, blower, faults), the safety guards, and the self-deploying HACS integration.
 - Not affiliated with ACiQ, Midea or Home Assistant. "ACiQ" is used only to identify compatible hardware.
 
-Released into the public domain under the [Unlicense](LICENSE), like the upstream project.
+Licensed under the [MIT License](LICENSE). Portions are derived from jeffmcfadden/midea-thermostat, which is public domain (Unlicense).
