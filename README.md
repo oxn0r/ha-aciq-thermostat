@@ -12,11 +12,38 @@
   <img src="https://img.shields.io/badge/iot__class-local__polling-brightgreen" alt="Local polling">
 </p>
 
-Local, cloud-free control **and equipment monitoring** for the **ACiQ / Midea TL04-1** Wi-Fi
-thermostat (also sold as "AC Pro"), installed through HACS. It's built for **communicating (HA/HB bus)
-dual-fuel systems**: Midea air handler or A-coil, inverter heat pump and gas furnace. You get the
-thermostat itself plus data the ACiQ app doesn't show: outdoor temperature, coil temperatures,
-compressor speed, and whether the furnace is burning.
+**Control your ACiQ thermostat from Home Assistant: locally, without the cloud.**
+
+## In short
+**The problem:** the ACiQ / Midea **TL04-1** Wi-Fi thermostat (also sold as "AC Pro") only works with
+the ACiQ cloud app. It has no Home Assistant integration and no local API, and existing Midea integrations
+(`midea_ac_lan`, msmart) don't support it.
+
+**The solution:** the thermostat runs Linux with an open debug port (ADB). This integration uses that port
+to put a tiny local API on the thermostat, then talks to it directly. No cloud, no account, no extra hardware.
+
+**What you get in Home Assistant:**
+- 🌡️ A normal thermostat card: Off / Auto / Heat / Cool / Fan, emergency heat, fan speed, setpoint
+- 🔥 **Is the gas furnace burning? Is the heat pump running, and how hard?** (compressor Hz)
+- 🌤️ **Outdoor temperature** from the outdoor unit, plus coil temperatures, blower state and fault codes
+- Works with HomeKit, automations, dashboards, energy tracking
+
+**Is this for me?** Yes, if your thermostat says **TL04-1** on the box or in the ACiQ app, and it's wired to a Midea or ACiQ
+indoor unit (communicating HA/HB wiring, typical for ACiQ heat pump, air handler and furnace systems).
+Other setups: see [Supported devices](#supported-devices).
+
+### Quick start (5 minutes)
+1. Give the thermostat a fixed IP in your router (its hostname starts with `midea_`).
+2. In Home Assistant: **HACS → ⋮ → Custom repositories →** `https://github.com/oxn0r/ha-aciq-thermostat`
+   (type *Integration*) → find **ACiQ Thermostat (Local)** → **Download** → restart Home Assistant.
+3. **Settings → Devices & services.** The thermostat usually appears as *Discovered*. If not, use **Add integration →
+   ACiQ Thermostat (Local)** and enter its IP.
+4. Review the safety checks it runs and press **Submit**. Done.
+
+> Recommended: block the thermostat's internet access in your router afterwards. The debug port it relies on is open to your
+> whole network, and blocking the internet also stops firmware updates that might close it. See [Security](#security).
+
+Want the details? Everything below explains how it works, what's verified, and how to troubleshoot.
 
 > **Credit:** this project exists because of [jeffmcfadden/midea-thermostat](https://github.com/jeffmcfadden/midea-thermostat).
 > It discovered the TL04-1's open root ADB access, reverse-engineered the `dev_app` IPC/msmart message
