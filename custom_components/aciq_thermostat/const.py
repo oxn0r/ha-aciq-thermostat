@@ -7,6 +7,7 @@ DOMAIN = "aciq_thermostat"
 CONF_ADB_PORT = "adb_port"
 CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
+CONF_BLOCK_EGRESS = "block_egress"
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
@@ -17,12 +18,17 @@ API_HEALTH = "/health"
 API_STATE = "/api/state"
 API_CONTROL = "/api/control"
 
-# Seconds to wait after a command before re-reading state
-REFRESH_DELAY = 2
-# Consecutive poll failures before trying to (re)deploy the daemon, and the
-# minimum time between automatic deploy attempts
-DEPLOY_AFTER_FAILURES = 2
-DEPLOY_MIN_INTERVAL = 300
+# Seconds to wait after a command before re-reading state (long-poll usually
+# delivers the change sooner)
+REFRESH_DELAY = 1
+# Long-poll: daemon holds GET /api/state?wait= up to this many seconds
+LONG_POLL_TIMEOUT = 25
+# Retry/backoff ceiling for the long-poll loop and outage re-checks
+LONG_POLL_MAX_BACKOFF = 10
+# TCP probe timeout used to classify outages
+PROBE_TIMEOUT = 3
+# Minimum time between automatic redeploys
+DEPLOY_MIN_INTERVAL = 60
 
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"

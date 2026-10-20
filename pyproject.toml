@@ -10,6 +10,7 @@ show_missing = true
 skip_covered = true
 
 [tool.mypy]
+cache_dir = ".mypy_cache"
 python_version = "3.13"
 strict = true
 warn_unreachable = true

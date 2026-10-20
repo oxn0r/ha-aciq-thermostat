@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 daemon/build/
 .DS_Store
+.mypy_cache/

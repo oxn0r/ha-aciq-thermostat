@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.3 — 2026-10-20
+### Added
+- **Near-instant updates.** Changes made on the wall unit (setpoint, mode, fan) and equipment state changes reach
+  Home Assistant in ~1–2 s instead of up to 30 s. The daemon supports long-polling
+  (`GET /api/state?wait=<state_id>&timeout=25`); the integration keeps the 30 s poll as a watchdog and falls back to
+  it automatically with an older daemon.
+- **Outage diagnosis.** When the API stops answering, quick TCP checks classify it as *network down* (thermostat
+  Wi-Fi drop / power loss — no ADB attempt), *daemon gone* (thermostat rebooted — redeploy at once) or *daemon hung*
+  (forced restart). One log line per outage with the reason, and the duration on recovery. Recovery re-checks every
+  ≤10 s instead of waiting for the next 30 s poll.
+- Thermostat uptime recorded at every deploy (log + diagnostics), new diagnostic sensors **Last thermostat boot** and
+  **Daemon started**, and an outage/deploy event history in diagnostics.
+- Option **Block the thermostat's internet at the source** (off by default): a runtime firewall rule on the
+  thermostat drops everything except LAN/Home Assistant traffic, so the ACiQ cloud client's endless DNS retries
+  (~40/s with the internet blocked upstream) no longer reach your router. Re-applied after reboots; removed when off.
+
+### Changed
+- Daemon reads the thermostat log incrementally (only new lines) instead of re-parsing ~1 MB per request.
+- *Auto state* diagnostic reports *None* outside Auto (the thermostat keeps its last Auto decision while in Heat/Cool;
+  climate never used it outside Auto).
+- Automatic redeploy back-off 5 min → 1 min; post-command refresh 2 s → 1 s.
+
+### Fixed
+- Outage log message had an empty reason (`Daemon unreachable ()`).
+
 ## 1.0.2 — 2026-10-20
 ### Changed
 - "Aux heat allowed" moved to the device's diagnostic section (still enabled). It shows backup/furnace heat is

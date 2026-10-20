@@ -138,19 +138,22 @@ async def test_firmware_issue(hass: HomeAssistant, aioclient_mock, mock_deployer
     assert issue is not None
 
 
-async def test_redeploy_when_daemon_gone(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:
+async def test_redeploy_when_daemon_gone(hass: HomeAssistant, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
     _, ensure = mock_deployer
     entry = await _setup(hass, aioclient_mock, state)
     coord = entry.runtime_data
     calls_before = ensure.await_count
     aioclient_mock.clear_requests()
     aioclient_mock.get(f"{BASE}/api/state", exc=TimeoutError())
+    tcp_probe.result = {8080: "timeout", 5555: "timeout"}          # network down: never redeploy
     coord.last_deploy_attempt = None
-    await coord.async_refresh()  # failure 1: no redeploy yet
+    await coord.async_refresh()
     assert ensure.await_count == calls_before
+    tcp_probe.result = {8080: "refused", 5555: "open"}             # daemon gone: redeploy at once
     with patch("custom_components.aciq_thermostat.coordinator.asyncio.sleep", AsyncMock()):
-        await coord.async_refresh()  # failure 2: redeploy attempted
+        await coord.async_refresh()
     assert ensure.await_count == calls_before + 1
+    assert ensure.call_args.kwargs["force"] is False
 
 
 async def test_metric_ha_converts(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:

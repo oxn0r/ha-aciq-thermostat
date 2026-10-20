@@ -43,6 +43,8 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <netinet/in.h>
@@ -52,11 +54,25 @@
 #define MAX_REQUEST 4096
 #define MAX_RESPONSE 8192
 #define MAX_LINE 2048
+#ifndef LOG_FILE
 #define LOG_FILE "/tmp/.lastlog"
+#endif
+#ifndef LOG_FILE_OLD
 #define LOG_FILE_OLD "/tmp/.lastlog.old"
+#endif
+#ifndef UPTIME_FILE
+#define UPTIME_FILE "/proc/uptime"
+#endif
+#ifndef OS_RELEASE_FILE
+#define OS_RELEASE_FILE "/etc/openwrt_release"
+#endif
+#define MAX_WAITERS 4          /* concurrent long-poll children */
+#define MAX_WAIT_SECONDS 30
 
 /* IPC constants for temperature control */
+#ifndef DEV_MSG_PATH
 #define DEV_MSG_PATH "/tmp/dev_msg"
+#endif
 #define FTOK_PROJ_ID 1
 #define EVENT_MSMART_FRAME 196608  /* 0x30000 */
 #define MSMART_FRAME_SIZE 29
@@ -127,13 +143,9 @@ void handle_signal(int sig) {
     }
 }
 
-/* Parse log files for thermostat state (same logic as thermostat_state.c) */
-void parse_log_file(const char *filename, struct thermostat_state *state) {
-    FILE *f = fopen(filename, "r");
-    if (!f) return;
-
-    char line[MAX_LINE];
-    while (fgets(line, sizeof(line), f)) {
+/* Parse one log line into the state (same logic as upstream thermostat_state.c) */
+static void parse_line(const char *line, struct thermostat_state *state) {
+    {
         /* Extract timestamp */
         if (strlen(line) > 23 && line[0] == '2' && line[4] == '-' && line[10] == ' ') {
             strncpy(state->last_update, line, 23);
@@ -257,8 +269,64 @@ void parse_log_file(const char *filename, struct thermostat_state *state) {
             }
         }
     }
+}
 
+/*
+ * Incremental log reading. The thermostat's logread appends to /tmp/.lastlog and
+ * rotates it by renaming to .lastlog.old. Re-reading ~1 MB per request costs
+ * ~0.5 s CPU on this SoC, so after the first full read only new complete lines
+ * are parsed. Rotation is detected by inode change; the unread tail of the
+ * rotated file is picked up from .lastlog.old.
+ */
+struct log_cursor { ino_t ino; long off; int primed; };
+static struct log_cursor cur_new;
+
+/* Parse complete lines of `filename` from *off; advance *off past them. */
+static void parse_from(const char *filename, long *off, struct thermostat_state *state) {
+    FILE *f = fopen(filename, "r");
+    if (!f) return;
+    if (fseek(f, *off, SEEK_SET) != 0) { fclose(f); return; }
+    char line[MAX_LINE];
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        if (len == 0 || line[len - 1] != '\n') {
+            if (len == sizeof(line) - 1) {   /* over-long line: skip it whole */
+                *off = ftell(f);
+                continue;
+            }
+            break;                           /* partial line still being written */
+        }
+        parse_line(line, state);
+        *off = ftell(f);
+    }
     fclose(f);
+}
+
+static void refresh_from_log(struct thermostat_state *state) {
+    struct stat st_new, st_old;
+    int have_new = stat(LOG_FILE, &st_new) == 0;
+    if (!cur_new.primed) {
+        long off_old = 0;
+        parse_from(LOG_FILE_OLD, &off_old, state);
+        cur_new.off = 0;
+        if (have_new) {
+            cur_new.ino = st_new.st_ino;
+            parse_from(LOG_FILE, &cur_new.off, state);
+        }
+        cur_new.primed = 1;
+        return;
+    }
+    if (!have_new) return;
+    if (st_new.st_ino != cur_new.ino) {
+        /* rotated: finish the previous file (now .old) from where we stopped */
+        if (stat(LOG_FILE_OLD, &st_old) == 0 && st_old.st_ino == cur_new.ino)
+            parse_from(LOG_FILE_OLD, &cur_new.off, state);
+        cur_new.ino = st_new.st_ino;
+        cur_new.off = 0;
+    } else if (st_new.st_size < cur_new.off) {
+        cur_new.off = 0;                     /* truncated in place */
+    }
+    parse_from(LOG_FILE, &cur_new.off, state);
 }
 
 struct equipment;
@@ -268,8 +336,7 @@ static void fill_from_memory(struct thermostat_state *state);
 /* Get current thermostat state */
 void get_state(struct thermostat_state *state) {
     *state = cached_state;
-    parse_log_file(LOG_FILE_OLD, state);
-    parse_log_file(LOG_FILE, state);
+    refresh_from_log(state);
     /* No dev_app setpoint seen yet: fall back to the UI's heat setpoint */
     if (!state->have_dev_state)
         fill_from_memory(state);  /* cold start: no AHU3 line in the log window yet */
@@ -279,7 +346,7 @@ void get_state(struct thermostat_state *state) {
 }
 
 static void read_firmware_id(void) {
-    FILE *f = fopen("/etc/openwrt_release", "r");
+    FILE *f = fopen(OS_RELEASE_FILE, "r");
     if (!f) return;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
@@ -389,9 +456,8 @@ static const char *raw_temp_f(int raw, char *buf, size_t sz) {
     return buf;
 }
 
-static int build_equipment_json(char *buf, size_t sz) {
-    struct equipment eq;
-    read_equipment(&eq);
+static int build_equipment_json(const struct equipment *eqp, char *buf, size_t sz) {
+    const struct equipment eq = *eqp;
     if (!eq.ok) return snprintf(buf, sz, "{\"available\": false}");
     char a[16], b2[16], c[16], d[16];
     return snprintf(buf, sz,
@@ -433,12 +499,49 @@ const char *fan_string(int wind) {
     }
 }
 
+/* Seconds since boot from /proc/uptime (-1 if unavailable) */
+static long read_uptime(void) {
+    FILE *f = fopen(UPTIME_FILE, "r");
+    if (!f) return -1;
+    double up = -1;
+    if (fscanf(f, "%lf", &up) != 1) up = -1;
+    fclose(f);
+    return (long)up;
+}
+static long daemon_start_uptime = -1;
+
+/*
+ * Fingerprint of the fields a client acts on (mode/setpoints/fan/aux/auto state and
+ * equipment run states). Room temperature/humidity are deliberately excluded: they
+ * change constantly and would defeat long-polling.
+ */
+static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
+    char sig[256];
+    snprintf(sig, sizeof(sig), "%s|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+             hvac_mode_string(st), st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
+             st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
+             eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
+             eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
+             eq->fault_state, eq->protect_state, control_enabled);
+    uint32_t h = 2166136261u;                       /* FNV-1a */
+    for (const char *c = sig; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; }
+    snprintf(out, 9, "%08x", (unsigned)h);
+}
+
+/* Current state + its id (one equipment read) */
+static void snapshot(struct thermostat_state *st, struct equipment *eq, char id[9]) {
+    get_state(st);
+    read_equipment(eq);
+    state_id(st, eq, id);
+}
+
 /* Build JSON response for state */
-int build_state_json(char *buf, size_t bufsize) {
-    struct thermostat_state state;
-    get_state(&state);
+static int build_state_json_from(const struct thermostat_state *stp, const struct equipment *eq,
+                                 const char *sid, char *buf, size_t bufsize) {
+    const struct thermostat_state state = *stp;
     char equip_json[512];
-    build_equipment_json(equip_json, sizeof(equip_json));
+    build_equipment_json(eq, equip_json, sizeof(equip_json));
+    long up = read_uptime();
 
     return snprintf(buf, bufsize,
         "{\n"
@@ -457,6 +560,9 @@ int build_state_json(char *buf, size_t bufsize) {
         "  \"last_update\": \"%s\",\n"
         "  \"firmware\": \"%s\",\n"
         "  \"control_enabled\": %s,\n"
+        "  \"state_id\": \"%s\",\n"
+        "  \"uptime_s\": %ld,\n"
+        "  \"daemon_uptime_s\": %ld,\n"
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
         "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
         "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f},\n"
@@ -477,12 +583,21 @@ int build_state_json(char *buf, size_t bufsize) {
         state.last_update,
         firmware_id,
         control_enabled ? "true" : "false",
+        sid, up, (up >= 0 && daemon_start_uptime >= 0) ? up - daemon_start_uptime : -1L,
         state.have_dev_state ? "true" : "false", state.dev_power, state.dev_mode,
         state.dev_auto_state, state.state_from_memory ? "memory" : "log", state.dev_temp_set, state.zone_lower, state.zone_upper,
         state.elec_heat, state.elec_heat_only, state.dev_wind,
         state.ui_heat_sp, state.ui_cool_sp,
         equip_json
     );
+}
+
+int build_state_json(char *buf, size_t bufsize) {
+    struct thermostat_state st;
+    struct equipment eq;
+    char id[9];
+    snapshot(&st, &eq, id);
+    return build_state_json_from(&st, &eq, id, buf, bufsize);
 }
 
 /*
@@ -691,6 +806,83 @@ int build_http_response(char *buf, size_t bufsize, int status_code,
 }
 
 /* Handle HTTP request */
+static int g_server_fd = -1;
+static int active_waiters = 0;
+
+/* Value of `key` in a query string ("a=1&b=2"), copied into out; 1 if present */
+static int query_param(const char *query, const char *key, char *out, size_t outsz) {
+    size_t klen = strlen(key);
+    for (const char *q = query; q && *q; ) {
+        if (strncmp(q, key, klen) == 0 && q[klen] == '=') {
+            const char *v = q + klen + 1;
+            size_t n = strcspn(v, "&");
+            if (n >= outsz) n = outsz - 1;
+            memcpy(out, v, n);
+            out[n] = '\0';
+            return 1;
+        }
+        q = strchr(q, '&');
+        if (q) q++;
+    }
+    return 0;
+}
+
+static void send_state(int client_fd, const struct thermostat_state *st,
+                       const struct equipment *eq, const char *id) {
+    char body[MAX_RESPONSE / 2], response[MAX_RESPONSE];
+    build_state_json_from(st, eq, id, body, sizeof(body));
+    build_http_response(response, sizeof(response), 200, "OK", "application/json", body);
+    send(client_fd, response, strlen(response), 0);
+}
+
+/*
+ * Long-poll: GET /api/state?wait=<state_id>&timeout=<s>. Answers as soon as the
+ * state id differs from `wait` (or immediately if it already does), else at the
+ * timeout with the current state. Served by a forked child so the main loop keeps
+ * handling control commands; at most MAX_WAITERS at once (beyond that: answer now).
+ */
+static void handle_wait(int client_fd, const char *wait_id, int timeout_s) {
+    struct thermostat_state st;
+    struct equipment eq;
+    char id[9];
+    snapshot(&st, &eq, id);
+    if (strcmp(id, wait_id) != 0 || timeout_s <= 0 || active_waiters >= MAX_WAITERS) {
+        send_state(client_fd, &st, &eq, id);
+        close(client_fd);
+        return;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {                       /* no fork: degrade to an immediate answer */
+        send_state(client_fd, &st, &eq, id);
+        close(client_fd);
+        return;
+    }
+    if (pid > 0) {                       /* parent */
+        active_waiters++;
+        close(client_fd);
+        return;
+    }
+    /* child */
+    if (g_server_fd >= 0) close(g_server_fd);
+    signal(SIGTERM, SIG_DFL);
+    time_t deadline = time(NULL) + timeout_s;
+    while (time(NULL) < deadline) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(client_fd, &rfds);
+        struct timeval tv = {1, 0};
+        if (select(client_fd + 1, &rfds, NULL, NULL, &tv) > 0) {
+            char tmp[64];
+            if (recv(client_fd, tmp, sizeof(tmp), MSG_DONTWAIT) <= 0) _exit(0);  /* client went away */
+        }
+        snapshot(&st, &eq, id);
+        if (strcmp(id, wait_id) != 0) break;
+    }
+    send_state(client_fd, &st, &eq, id);
+    close(client_fd);
+    _exit(0);
+}
+
 void handle_request(int client_fd) {
     char request[MAX_REQUEST];
     char response[MAX_RESPONSE];
@@ -699,6 +891,7 @@ void handle_request(int client_fd) {
     /* Read request */
     struct timeval tv = {5, 0};
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     ssize_t n = 0;
     for (;;) {
         ssize_t r = recv(client_fd, request + n, sizeof(request) - 1 - n, 0);
@@ -741,6 +934,18 @@ void handle_request(int client_fd) {
 
     /* Route GET requests */
     if (strcmp(method, "GET") == 0) {
+        char *query = strchr(path, '?');
+        if (query) *query++ = '\0';
+        char wait_id[16];
+        if ((strcmp(path, "/api/state") == 0 || strcmp(path, "/api/state/") == 0)
+                && query && query_param(query, "wait", wait_id, sizeof(wait_id))) {
+            char tbuf[8] = "25";
+            query_param(query, "timeout", tbuf, sizeof(tbuf));
+            int t = atoi(tbuf);
+            if (t > MAX_WAIT_SECONDS) t = MAX_WAIT_SECONDS;
+            handle_wait(client_fd, wait_id, t);
+            return;
+        }
         if (strcmp(path, "/api/state") == 0 || strcmp(path, "/api/state/") == 0) {
             /* Return thermostat state */
             build_state_json(body, sizeof(body));
@@ -923,6 +1128,7 @@ void print_usage(const char *prog) {
     printf("\n");
     printf("Endpoints:\n");
     printf("  GET  /api/state    - Returns thermostat state as JSON\n");
+    printf("       ?wait=<state_id>&timeout=<s>  long-poll: answer on change (max %d s)\n", MAX_WAIT_SECONDS);
     printf("  POST /api/control  - Set mode and temperature\n");
     printf("       Body: any of {\"temperature\": 60-86, \"mode\": \"off|auto|cool|heat|fan_only|emergency_heat\", \"fan\": \"low|medium|high|auto\"}\n");
     printf("  GET  /health       - Health check\n");
@@ -963,6 +1169,7 @@ int main(int argc, char *argv[]) {
     }
 
     read_firmware_id();
+    daemon_start_uptime = read_uptime();
     control_enabled = force_control || strcmp(firmware_id, VERIFIED_FIRMWARE) == 0;
 
     /* Set up signal handlers */
@@ -1001,6 +1208,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    g_server_fd = server_fd;
     printf("Thermostat API server starting on port %d (firmware %s, control %s)\n",
            port, firmware_id, control_enabled ? "enabled" : "DISABLED");
     printf("Endpoints:\n");
@@ -1020,6 +1228,8 @@ int main(int argc, char *argv[]) {
         socklen_t client_len = sizeof(client_addr);
 
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+        while (waitpid(-1, NULL, WNOHANG) > 0)   /* reap finished long-poll children */
+            if (active_waiters > 0) active_waiters--;
         if (client_fd < 0) {
             if (errno == EINTR) continue;  /* Signal interrupted */
             perror("accept");

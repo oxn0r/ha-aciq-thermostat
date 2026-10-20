@@ -29,6 +29,10 @@ class FakeThermostat:
     local_ip: str = "10.0.0.2"
     commands: list[str] = field(default_factory=list)
     pushes: int = 0
+    uptime: str = "1234.56"
+    wlan_addr: str = "10.0.0.65/22"
+    egress_ok: bool = True
+    egress_chain: list[str] = field(default_factory=list)
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -65,6 +69,20 @@ class FakeAdb:
     async def shell(self, cmd: str, **kwargs: Any) -> str:  # noqa: C901 - a dispatch table
         t = self.t
         t.commands.append(cmd)
+        if "/proc/uptime" in cmd:
+            return t.uptime
+        if cmd.startswith("ip -4 -o addr show wlan0"):
+            return t.wlan_addr
+        if cmd.startswith("iptables -N ACIQ_EGRESS"):
+            if not t.egress_ok:
+                return "iptables: No chain/target/match by that name."
+            t.egress_chain = [part.strip() for part in cmd.split("&&") if "iptables -A ACIQ_EGRESS" in part]
+            return "EGRESS_OK"
+        if cmd.startswith("iptables -L ACIQ_EGRESS"):
+            return "17"
+        if cmd.startswith("iptables -D OUTPUT -j ACIQ_EGRESS"):
+            t.egress_chain = []
+            return ""
         if cmd == "id -u":
             return t.uid
         if "DISTRIB_ID" in cmd:

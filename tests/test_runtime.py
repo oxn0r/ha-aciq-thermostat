@@ -85,7 +85,7 @@ async def test_options_change_reloads(hass, aioclient_mock, mock_deployer, state
     assert mock_deployer[1].call_args.args[0] == ["10.0.0.4"]
 
 
-async def test_state_http_error_and_no_state(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_state_http_error_and_no_state(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
     e = await _setup(hass, aioclient_mock, state, auto=False)
     c = e.runtime_data
     aioclient_mock.clear_requests()
@@ -99,15 +99,16 @@ async def test_state_http_error_and_no_state(hass, aioclient_mock, mock_deployer
     assert not c.last_update_success
 
 
-async def test_redeploy_failure(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_redeploy_failure(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
+    tcp_probe.result = {8080: "refused", 5555: "open"}
     e = await _setup(hass, aioclient_mock, state)
     c = e.runtime_data
     aioclient_mock.clear_requests()
     aioclient_mock.get(f"{BASE}/api/state", exc=TimeoutError())
     mock_deployer[1].side_effect = DeployError("adb down")
     c.last_deploy_attempt = None
-    c.failures = 5
-    await c.async_refresh()
+    with patch("custom_components.aciq_thermostat.coordinator.asyncio.sleep", AsyncMock()):
+        await c.async_refresh()
     assert not c.last_update_success
     assert c.last_deploy_result == "failed: adb down"
 
@@ -129,7 +130,7 @@ async def test_buttons(hass, aioclient_mock, mock_deployer, state) -> None:
     await _setup(hass, aioclient_mock, state)
     pre, ens = mock_deployer
     await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_redeploy_daemon"}, blocking=True)
-    assert ens.call_args.kwargs == {"force": True}
+    assert ens.call_args.kwargs["force"] is True and ens.call_args.kwargs["block_egress"] is False
     await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_run_pre_flight_checks"},
                                    blocking=True)
     ens.side_effect = DeployError("x")

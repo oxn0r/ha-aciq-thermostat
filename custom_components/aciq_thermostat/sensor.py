@@ -39,6 +39,16 @@ def _eq(key: str) -> Callable[[dict[str, Any], dict[str, Any]], Any]:
 class AciqSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any], dict[str, Any]], Any]
     needs_equipment: bool = False
+    # value from the coordinator itself (versions, boot/daemon times) instead of the state
+    coord_fn: Callable[[AciqCoordinator], Any] | None = None
+
+
+def _auto_state(d: dict[str, Any]) -> str:
+    # The thermostat keeps its last Auto decision while in Heat/Cool; it only means
+    # something in Auto, so report "none" otherwise.
+    if d.get("mode") != "auto":
+        return "none"
+    return AUTO_STATE_NAMES.get(d.get("dev", {}).get("auto_state", 0), "none")
 
 
 TEMP: dict[str, Any] = dict(
@@ -101,14 +111,22 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           value_fn=lambda d, eq: d.get("firmware")),
     AciqSensorDescription(key="indoor_unit_firmware", translation_key="indoor_unit_firmware",
                           entity_category=EntityCategory.DIAGNOSTIC,
-                          value_fn=lambda d, eq: None),  # filled from coordinator.versions
+                          value_fn=lambda d, eq: None,
+                          coord_fn=lambda c: c.versions.get("indoor_unit_firmware")),
     AciqSensorDescription(key="auto_state", translation_key="auto_state",
                           device_class=SensorDeviceClass.ENUM,
                           options=list(AUTO_STATE_NAMES.values()),
                           entity_category=EntityCategory.DIAGNOSTIC,
                           entity_registry_enabled_default=False,
-                          value_fn=lambda d, eq: AUTO_STATE_NAMES.get(d.get("dev", {}).get("auto_state", 0),
-                                                                      "none")),
+                          value_fn=lambda d, eq: _auto_state(d)),
+    AciqSensorDescription(key="last_boot", translation_key="last_boot",
+                          device_class=SensorDeviceClass.TIMESTAMP,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: None, coord_fn=lambda c: c.boot_time),
+    AciqSensorDescription(key="daemon_started", translation_key="daemon_started",
+                          device_class=SensorDeviceClass.TIMESTAMP,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: None, coord_fn=lambda c: c.daemon_start_time),
 )
 
 
@@ -133,8 +151,8 @@ class AciqSensor(AciqEntity, SensorEntity):
 
     @property
     def native_value(self) -> Any:
-        if self.entity_description.key == "indoor_unit_firmware":
-            return self.coordinator.versions.get("indoor_unit_firmware")
+        if self.entity_description.coord_fn is not None:
+            return self.entity_description.coord_fn(self.coordinator)
         return self.entity_description.value_fn(self.data, self.equipment)
 
     @property

@@ -130,6 +130,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Option | Default | Description |
 |---|---|---|
 | Automatically (re)deploy the daemon | on | Deploy at startup and after thermostat reboots |
+| Block the thermostat's internet at the source | off | Runtime firewall rule on the thermostat: only LAN/HA traffic leaves it (see [Router flooded](#router-flooded-with-dns-lookups)) |
 | Extra allowed IPs | (empty) | Other hosts allowed to use the API directly (HA's own IP is always allowed) |
 
 **Reconfigure** (⋮ → Reconfigure) changes the IP or ports. It re-runs the checks and refuses if a different thermostat answers.
@@ -149,7 +150,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Run pre-flight checks | button | maintenance |
-| Firmware · Indoor unit firmware · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
+| Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
 
 The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
 
@@ -159,7 +160,10 @@ The integration adds no custom actions. Use the standard `climate.*` actions (`s
 regular state, numeric-state and device triggers on the entities above.
 
 ## Data updates
-The integration polls the on-device daemon every **30 s**, plus an immediate refresh 2 s after each command. The daemon reads:
+**Push-style:** the integration long-polls the on-device daemon (`/api/state?wait=…`), which answers as soon as the
+mode, setpoints, fan, auxiliary/emergency heat, Auto decision or equipment run state changes, so edits made on the wall
+unit show up in ~1–2 s. Room temperature and humidity arrive with every answer (at least every 25 s). A 30 s watchdog
+poll handles outages and older daemons. The daemon reads:
 - the thermostat's own state log (mode, setpoint, room conditions), and
 - the indoor/outdoor equipment state that `dev_app` keeps in memory. That state updates every few seconds from the HA/HB bus.
 
@@ -218,6 +222,20 @@ runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays
 - Schedules, vacation mode and installer settings aren't exposed.
 - The thermostat's adbd stalls when **two** ADB hosts connect at once. Keep other ADB tools disconnected.
 - A firmware update could close ADB. Block the thermostat's internet access to prevent updates (see [Security](#security)).
+
+### Outages
+If the API stops answering, the integration checks why and logs one line, for example:
+`Thermostat API on 10.0.0.65 unavailable: TimeoutError; TCP 8080 timeout, ADB 5555 timeout -> thermostat unreachable on the network (Wi-Fi drop or power loss)`.
+*Network down:* waits for the thermostat to come back (re-checks every ≤10 s). *Daemon gone* (thermostat rebooted):
+redeploys immediately. *Daemon hung:* forces a restart. Diagnostics show the last outages and deploys, and the
+*Last thermostat boot* sensor makes reboots obvious. The TL04-1's Wi-Fi radio (XR819) occasionally faults and recovers
+on its own within a few minutes; a stable 2.4 GHz access point helps.
+
+### Router flooded with DNS lookups?
+With the thermostat's internet blocked, the ACiQ cloud client (`msmart`) retries DNS endlessly (8.8.8.8, 1.1.1.1, …),
+around 40 lookups per second. Turn on **Configure → Block the thermostat's internet at the source**: a temporary
+firewall rule on the thermostat drops everything except your LAN and Home Assistant, so the traffic never reaches your
+router (and the retries slow down). It's re-applied after reboots and removed when you turn it off.
 
 ## Troubleshooting
 | Symptom | Fix |

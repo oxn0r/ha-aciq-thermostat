@@ -23,6 +23,29 @@ def auto_enable_custom_integrations(enable_custom_integrations, hass):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_background_long_poll():
+    """Entities/flows tests don't need the infinite long-poll task; long-poll tests drive it directly.
+    Yields the patcher (`.temp_original` is the real method)."""
+    p = patch("custom_components.aciq_thermostat.coordinator.AciqCoordinator.async_start_long_poll")
+    p.start()
+    yield p
+    p.stop()
+
+
+@pytest.fixture
+def tcp_probe():
+    """Controls the outage TCP probe: set probe.result = {port: 'open'|'refused'|'timeout'}."""
+    class Probe:
+        result: dict[int, str] = {8080: "timeout", 5555: "timeout"}
+    probe = Probe()
+
+    async def fake(self, port: int) -> str:
+        return probe.result.get(port, "timeout")
+    with patch("custom_components.aciq_thermostat.coordinator.AciqCoordinator._tcp", fake):
+        yield probe
+
+
 @pytest.fixture
 def state() -> dict:
     return copy.deepcopy(STATE)

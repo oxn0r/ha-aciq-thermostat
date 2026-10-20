@@ -77,6 +77,12 @@
           "dry": "mdi:water-percent",
           "fan": "mdi:fan"
         }
+      },
+      "last_boot": {
+        "default": "mdi:restart"
+      },
+      "daemon_started": {
+        "default": "mdi:api"
       }
     },
     "binary_sensor": {

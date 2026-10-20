@@ -119,3 +119,47 @@ async def test_push_error_wrapped(thermo: FakeThermostat) -> None:
     with patch("tests.fake_adb.FakeAdb.push", AsyncMock(side_effect=OSError("disk"))):
         with pytest.raises(DeployError, match="push failed"):
             await Deployer("h", 5555).ensure_daemon([])
+
+
+async def test_uptime_recorded_at_deploy(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    assert d.last_uptime_s == pytest.approx(1234.56)
+    thermo.uptime = "garbage"
+    await d.ensure_daemon([], force=True)
+    assert d.last_uptime_s is None
+
+
+async def test_egress_enable_builds_safe_chain(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon(["10.0.0.40"], block_egress=True)
+    chain = thermo.egress_chain
+    assert chain[-1].endswith("-j DROP")                         # DROP only after every allow rule
+    joined = " | ".join(chain)
+    for allow in ("-o lo -j RETURN", "-d 10.0.0.0/22 -j RETURN", "-d 10.0.0.2 -j RETURN",
+                  "-d 10.0.0.40 -j RETURN", "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"):
+        assert allow in joined, allow
+    assert d.last_egress == {"enabled": True, "lan": "10.0.0.0/22", "dropped_packets": 17}
+
+
+async def test_egress_applied_when_already_running_and_disabled(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    assert await d.ensure_daemon([], block_egress=True) == "already running"
+    assert thermo.egress_chain
+    await d.ensure_daemon([], block_egress=False)
+    assert thermo.egress_chain == [] and d.last_egress == {"enabled": False}
+
+
+async def test_egress_failure_cleans_up(thermo: FakeThermostat) -> None:
+    thermo.egress_ok = False
+    with pytest.raises(DeployError, match="egress filter failed"):
+        await Deployer("h", 5555).ensure_daemon([], block_egress=True)
+    assert any(c.startswith("iptables -D OUTPUT -j ACIQ_EGRESS") for c in thermo.commands)
+
+
+async def test_egress_bad_lan_address(thermo: FakeThermostat) -> None:
+    thermo.wlan_addr = ""
+    with pytest.raises(DeployError, match="LAN"):
+        await Deployer("h", 5555).ensure_daemon([], block_egress=True)
+    assert not any(c.startswith("iptables -N") for c in thermo.commands)   # nothing applied

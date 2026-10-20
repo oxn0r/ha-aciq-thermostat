@@ -36,6 +36,8 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+      - name: Native daemon tests (long-poll, incremental log, rotation)
+        run: python3 daemon/tests/native_test.py
       - name: Reproducible build matches bundled binary
         run: daemon/build.sh --check
       - uses: actions/upload-artifact@v7

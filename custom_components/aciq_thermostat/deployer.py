@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass, field
 import hashlib
+import ipaddress
 import logging
 from pathlib import Path
 import re
@@ -86,6 +87,8 @@ class Deployer:
         self.adb_port = adb_port
         self._lock = asyncio.Lock()
         self.last_allowlist: list[str] = []
+        self.last_uptime_s: float | None = None
+        self.last_egress: dict[str, Any] = {}
 
     async def _session(self) -> AdbDeviceTcpAsync:
         # adbd on this device can stall a new client while another adb host holds
@@ -171,7 +174,39 @@ class Deployer:
         except (AttributeError, TypeError, IndexError):
             return None
 
-    async def ensure_daemon(self, extra_ips: list[str], force: bool = False) -> str:
+    async def _apply_egress(self, dev: AdbDeviceTcpAsync, enable: bool, allow_ips: list[str]) -> None:
+        """Runtime (non-persistent) OUTPUT filter: drop everything except LAN, allowlisted
+        IPs, broadcast/multicast and replies. Stops the cloud client's endless DNS retries
+        from leaving the thermostat. Idempotent; cleared by reboot and re-applied at deploy."""
+        if not enable:
+            await self._sh(dev, "iptables -D OUTPUT -j ACIQ_EGRESS 2>/dev/null; "
+                                "iptables -F ACIQ_EGRESS 2>/dev/null; iptables -X ACIQ_EGRESS 2>/dev/null; true")
+            self.last_egress = {"enabled": False}
+            return
+        addr = await self._sh(dev, "ip -4 -o addr show wlan0 | awk '{print $4}' | head -1")
+        try:
+            lan = str(ipaddress.ip_interface(addr).network)
+        except ValueError as err:
+            raise DeployError(f"cannot determine thermostat LAN for egress filter ({addr!r})") from err
+        rules = ["-o lo -j RETURN", f"-d {lan} -j RETURN",
+                 *(f"-d {shlex.quote(ip)} -j RETURN" for ip in allow_ips),
+                 "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"]
+        script = ("iptables -N ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS && "
+                  "{ iptables -A ACIQ_EGRESS -m state --state ESTABLISHED,RELATED -j RETURN 2>/dev/null; true; } && "
+                  + " && ".join(f"iptables -A ACIQ_EGRESS {r}" for r in rules)
+                  + " && iptables -A ACIQ_EGRESS -j DROP"
+                  " && { iptables -C OUTPUT -j ACIQ_EGRESS 2>/dev/null || iptables -I OUTPUT 1 -j ACIQ_EGRESS; }"
+                  " && echo EGRESS_OK")
+        out = await self._sh(dev, script)
+        if "EGRESS_OK" not in out:
+            # never leave a partial filter behind
+            await self._sh(dev, "iptables -D OUTPUT -j ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS 2>/dev/null; true")
+            raise DeployError(f"egress filter failed: {out[-200:]}")
+        drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
+        self.last_egress = {"enabled": True, "lan": lan, "dropped_packets": int(drops) if drops.isdigit() else None}
+
+    async def ensure_daemon(self, extra_ips: list[str], force: bool = False,
+                            block_egress: bool | None = None) -> str:
         """Make sure the bundled daemon runs with the wanted allowlist.
 
         The allowlist is our own ADB source address (what the thermostat sees)
@@ -194,6 +229,11 @@ class Deployer:
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
                 if fw != VERIFIED_FIRMWARE:
                     _LOGGER.warning("Firmware %s is not verified; daemon will run read-only", fw)
+                up = (await self._sh(dev, "cut -d' ' -f1 /proc/uptime")).strip()
+                try:
+                    self.last_uptime_s = float(up)
+                except ValueError:
+                    self.last_uptime_s = None
 
                 pid = await self._sh(dev, "pidof thermostat_api")
                 have_sha = (await self._sh(dev, f"sha256sum {DAEMON_DEVICE_PATH} 2>/dev/null")).split(" ")[0]
@@ -201,6 +241,8 @@ class Deployer:
                 if pid.isdigit():
                     cmdline = (await self._sh(dev, f"tr '\\0' ' ' < /proc/{pid}/cmdline")).strip()
                 if (not force and pid.isdigit() and have_sha == want_sha and cmdline == want_cmd):
+                    if block_egress is not None:
+                        await self._apply_egress(dev, block_egress, ips)
                     return "already running"
 
                 pushed = False
@@ -224,6 +266,8 @@ class Deployer:
                 new_pid = await self._sh(dev, "pidof thermostat_api")
                 if not new_pid.isdigit():
                     raise DeployError("daemon did not start")
+                if block_egress is not None:
+                    await self._apply_egress(dev, block_egress, ips)
                 return f"started pid {new_pid}" + (" (pushed new build)" if pushed else "")
             finally:
                 await dev.close()
