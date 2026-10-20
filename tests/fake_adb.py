@@ -33,6 +33,9 @@ class FakeThermostat:
     wlan_addr: str = "10.0.0.65/22"
     egress_ok: bool = True
     egress_chain: list[str] = field(default_factory=list)
+    children: list[int] = field(default_factory=list)   # long-poll children (ppid = daemon)
+    strays: list[int] = field(default_factory=list)     # thermostat_api not under the daemon (ppid 1)
+    killed: list[int] = field(default_factory=list)
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -97,8 +100,20 @@ class FakeAdb:
             return "12"
         if "RAC_DEV_AHU3_STATE" in cmd:
             return "5"
+        if cmd.startswith("netstat -ltnp"):
+            lines = [f"L {t.daemon_pid}/thermostat_ap"] if t.daemon_pid else []   # BusyBox truncates
+            if t.daemon_pid:
+                lines.append(f"P {t.daemon_pid} 1")
+                lines += [f"P {c} {t.daemon_pid}" for c in t.children]
+            lines += [f"P {s_} 1" for s_ in t.strays]
+            return "\n".join(lines)
         if "netstat" in cmd:
             return "1" if t.daemon_pid else "0"
+        if cmd.startswith("kill ") and "2>/dev/null; true" in cmd and "pidof" not in cmd:
+            pids = [int(x) for x in cmd.split()[1:] if x.isdigit()]
+            t.killed += pids
+            t.strays = [x for x in t.strays if x not in pids]
+            return ""
         if cmd == "cat /tmp/.sn 2>/dev/null":
             return t.serial
         if cmd == "pidof thermostat_api":
@@ -112,6 +127,8 @@ class FakeAdb:
         if cmd.startswith("rm -f"):
             return ""
         if cmd.startswith("P=$(pidof thermostat_api)"):
+            t.killed += ([int(t.daemon_pid)] if t.daemon_pid else []) + t.children + t.strays
+            t.children, t.strays = [], []
             if "mv -f" in cmd:
                 t.daemon_sha = t.new_file_sha
             if t.start_fails:

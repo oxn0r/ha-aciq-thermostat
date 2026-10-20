@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.4 — 2026-10-20
+### Fixed
+- **Toggling *Block cloud traffic* reloaded the integration** (≈3 s unavailable) and restarted the daemon. The switch
+  now applies/removes the rule live over ADB and only persists the option; no reload, daemon untouched. If the
+  thermostat can't be reached, the toggle shows an error and the state stays unchanged.
+- **Healthy daemon restarted on every reload/restart (v1.0.3).** With long-polling, a waiting child process shares
+  the daemon's name, so `pidof` returned two PIDs and the daemon looked "not running". The daemon is now identified
+  as the process listening on the API port (matched by PID, robust to BusyBox's truncated names).
+- Pre-flight's API-port check failed for the same reason while a long-poll was waiting.
+- A custom API port was not passed to the daemon (`-p`); default 8080 unaffected.
+
+### Added
+- **Self-healing of extra processes:** stray `thermostat_api` processes that are neither the listening daemon nor its
+  long-poll children are removed; if nothing listens, all are cleared and exactly one daemon is started and confirmed.
+- **Plain-language deploy reasons** in the log, diagnostics and on the *Daemon started* sensor (attributes
+  `last_deploy`, `last_deploy_reason`, `cause`, `thermostat_uptime_at_deploy_s`), e.g. "thermostat rebooted 1m35s ago
+  (power loss or restart); daemon reinstalled", "daemon had stopped although the thermostat has been up 2h00m;
+  restarted", "upgraded to the bundled daemon build", "restarted with a new allowlist".
+
+### Changed
+- Option changes reload only when needed (connection, auto-deploy, extra allowed IPs). *Block cloud traffic* changed
+  from the Configure dialog is also applied live.
+
 ## 1.0.3 — 2026-10-20
 ### Added
 - **Near-instant updates.** Changes made on the wall unit (setpoint, mode, fan) and equipment state changes reach

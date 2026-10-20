@@ -341,23 +341,125 @@ async def test_egress_option_passed_to_deploy(hass, aioclient_mock, mock_deploye
     assert ensure.call_args.kwargs["block_egress"] is True
 
 
-async def test_block_cloud_switch_toggles_option(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_switch_toggle_live_no_reload_no_restart(hass, aioclient_mock, mock_deployer, state) -> None:
+    """v1.0.3 issue: toggling reloaded the entry (3 s unavailable) and restarted the daemon."""
     _, ensure = mock_deployer
     e = await _setup(hass, aioclient_mock, state)
-    st = hass.states.get("switch.thermostat_block_cloud_traffic")
-    assert st.state == "off"
-    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
-                                   blocking=True)
-    await hass.async_block_till_done()
-    assert e.options["block_egress"] is True
-    assert ensure.call_args.kwargs["block_egress"] is True          # reload applied it
-    assert hass.states.get("switch.thermostat_block_cloud_traffic").state == "on"
-    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
-                                   blocking=True)                     # no-op when already on
-    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.thermostat_block_cloud_traffic"},
-                                   blocking=True)
-    await hass.async_block_till_done()
-    assert e.options["block_egress"] is False and ensure.call_args.kwargs["block_egress"] is False
+    deploys = ensure.await_count
+    seen_states: list[str] = []
+    from homeassistant.core import Event, callback
+    from homeassistant.helpers.event import async_track_state_change_event
+
+    @callback
+    def _rec(ev: Event) -> None:
+        seen_states.append(ev.data["new_state"].state if ev.data["new_state"] else "removed")
+    unsub = async_track_state_change_event(hass, ["climate.thermostat"], _rec)
+    with (patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+                AsyncMock(return_value="reapplied")) as verify,
+          patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload):
+        await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                       blocking=True)
+        await hass.async_block_till_done()
+        assert hass.states.get("switch.thermostat_block_cloud_traffic").state == "on"
+        assert e.options["block_egress"] is True
+        verify.assert_awaited_once_with(True, [])
+        await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                       blocking=True)                     # already on: no-op
+        assert verify.await_count == 1
+        verify.return_value = "removed"
+        await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.thermostat_block_cloud_traffic"},
+                                       blocking=True)
+        await hass.async_block_till_done()
+        reload.assert_not_awaited()
+    unsub()
+    assert e.options["block_egress"] is False
+    assert ensure.await_count == deploys                                 # daemon never redeployed
+    assert "unavailable" not in seen_states and "removed" not in seen_states
+
+
+async def test_switch_adb_failure_raises_and_keeps_state(hass, aioclient_mock, mock_deployer, state) -> None:
+    from homeassistant.exceptions import HomeAssistantError
+    from custom_components.aciq_thermostat.deployer import DeployError
+    e = await _setup(hass, aioclient_mock, state)
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+               AsyncMock(side_effect=DeployError("ADB busy"))):
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call("switch", "turn_on",
+                                           {"entity_id": "switch.thermostat_block_cloud_traffic"}, blocking=True)
+    assert hass.states.get("switch.thermostat_block_cloud_traffic").state == "off"
+    assert e.options.get("block_egress", False) is False
+
+
+async def test_options_dialog_egress_change_applied_live(hass, aioclient_mock, mock_deployer, state) -> None:
+    e = await _setup(hass, aioclient_mock, state)
+    with (patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+                AsyncMock(return_value="reapplied")) as verify,
+          patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload):
+        hass.config_entries.async_update_entry(e, options={**e.options, "block_egress": True})
+        await hass.async_block_till_done()
+    reload.assert_not_awaited()
+    verify.assert_awaited_once_with(True, [])
+
+
+async def test_options_dialog_egress_apply_failure_retried(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    from custom_components.aciq_thermostat.deployer import DeployError
+    e = await _setup(hass, aioclient_mock, state)
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
+               AsyncMock(side_effect=DeployError("busy"))):
+        hass.config_entries.async_update_entry(e, options={**e.options, "block_egress": True})
+        await hass.async_block_till_done()
+    assert "will retry" in caplog.text and e.runtime_data._egress_check_due is True
+
+
+@pytest.mark.parametrize("change", ["host", "port", "auto_deploy", "extra_allowed_ips"])
+async def test_restart_relevant_changes_still_reload(hass, aioclient_mock, mock_deployer, state, change) -> None:
+    e = await _setup(hass, aioclient_mock, state)
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+        if change in ("host", "port"):
+            new = {**e.data, CONF_HOST: "10.0.0.66"} if change == "host" else {**e.data, CONF_PORT: 8081}
+            hass.config_entries.async_update_entry(e, data=new)
+        elif change == "auto_deploy":
+            hass.config_entries.async_update_entry(e, options={**e.options, CONF_AUTO_DEPLOY: False})
+        else:
+            hass.config_entries.async_update_entry(e, options={**e.options, "extra_allowed_ips": "10.0.0.4"})
+        await hass.async_block_till_done()
+    reload.assert_awaited_once()
+
+
+def test_explain_deploy_texts() -> None:
+    from custom_components.aciq_thermostat.coordinator import explain_deploy
+    assert explain_deploy({"action": "already_running"}, 9e4, "setup") == "daemon already running; kept"
+    assert "rebooted 3m00s ago (power loss or restart)" in explain_deploy(
+        {"action": "upgraded", "cause": "not_running"}, 180, "daemon_gone")
+    assert "had stopped although the thermostat has been up 2h00m" in explain_deploy(
+        {"action": "started", "cause": "not_running"}, 7200, "daemon_gone")
+    assert explain_deploy({"action": "started", "cause": "not_running"}, 7200, "setup").startswith("daemon was not running")
+    assert explain_deploy({"action": "upgraded", "cause": "build_changed"}, 7200, "setup") == "upgraded to the bundled daemon build"
+    assert explain_deploy({"action": "started", "cause": "args_changed"}, 7200, "setup") == "restarted with a new allowlist"
+    assert explain_deploy({"action": "started", "cause": "forced"}, 7200, "daemon_hung") == "restarted (not answering)"
+    assert explain_deploy({"action": "started", "cause": "forced"}, 7200, "button") == "restarted on request"
+    assert explain_deploy({}, None, "setup") == "deployed"
+
+
+async def test_deploy_reason_logged_and_on_sensor(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    from homeassistant.helpers import entity_registry as er
+    _, ensure = mock_deployer
+    caplog.set_level(logging.INFO)
+
+    async def fake_ensure(self, extra, force=False, block_egress=None):  # noqa: ANN001
+        self.last_uptime_s = 95.0
+        self.last_deploy_detail = {"action": "upgraded", "cause": "not_running", "pid": 77, "previous_pid": None,
+                                   "thermostat_uptime_s": 95.0}
+        return "started pid 77 (pushed new build)"
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.ensure_daemon", fake_ensure):
+        e = await _setup(hass, aioclient_mock, _with(state, uptime_s=100, daemon_uptime_s=5))
+    assert "thermostat rebooted 1m35s ago (power loss or restart); daemon reinstalled" in caplog.text
+    ent = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{SERIAL}_daemon_started")
+    attrs = hass.states.get(ent).attributes
+    assert attrs["last_deploy_reason"].startswith("thermostat rebooted") and attrs["cause"] == "not_running"
+    assert attrs["thermostat_uptime_at_deploy_s"] == 95.0
+    ev = [x for x in e.runtime_data.events if x["event"] == "deploy"][-1]
+    assert ev["explanation"].startswith("thermostat rebooted")
 
 
 async def test_egress_verified_after_reboot_and_periodically(hass, aioclient_mock, mock_deployer, state, caplog) -> None:

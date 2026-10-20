@@ -75,7 +75,8 @@ class AciqConfigFlow(ConfigFlow, domain=DOMAIN):
             errors[CONF_HOST] = "invalid_host"
             return None
         try:
-            res = await Deployer(host, int(user_input[CONF_ADB_PORT])).preflight()
+            res = await Deployer(host, int(user_input[CONF_ADB_PORT]),
+                                 int(user_input.get(CONF_PORT, DEFAULT_PORT))).preflight()
         except DeployError as err:
             _LOGGER.warning("Pre-flight failed for %s: %s", host, err)
             errors["base"] = "cannot_connect"

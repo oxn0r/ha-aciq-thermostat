@@ -84,6 +84,31 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m" if h else (f"{m}m{sec:02d}s" if m else f"{sec}s")
 
 
+RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS})
+
+
+def explain_deploy(detail: dict[str, Any], uptime: float | None, trigger: str) -> str:
+    """Plain-language reason for a (re)deploy, for the log, diagnostics and sensors."""
+    cause, action = detail.get("cause"), detail.get("action")
+    if action == "already_running":
+        return "daemon already running; kept"
+    if cause == "not_running":
+        if uptime is not None and uptime < 900:
+            return (f"thermostat rebooted {_fmt_duration(uptime)} ago (power loss or restart); "
+                    "daemon reinstalled")
+        if trigger == "setup":
+            return "daemon was not running at setup; started"
+        up = f" although the thermostat has been up {_fmt_duration(uptime)}" if uptime is not None else ""
+        return f"daemon had stopped{up}; restarted"
+    if cause == "build_changed":
+        return "upgraded to the bundled daemon build"
+    if cause == "args_changed":
+        return "restarted with a new allowlist"
+    if cause == "forced":
+        return "restarted (not answering)" if trigger == "daemon_hung" else "restarted on request"
+    return "deployed"
+
+
 class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Polls / long-polls the on-device daemon, sends commands, self-heals."""
 
@@ -101,7 +126,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api_port: int = int(entry.data.get(CONF_PORT, DEFAULT_PORT))
         self.adb_port: int = int(entry.data.get(CONF_ADB_PORT, DEFAULT_ADB_PORT))
         self.base = f"http://{self.host}:{self.api_port}"
-        self.deployer = Deployer(self.host, self.adb_port)
+        self.deployer = Deployer(self.host, self.adb_port, self.api_port)
         self.session = async_get_clientsession(hass)
         self.failures = 0
         self.last_deploy_attempt: float | None = None
@@ -115,6 +140,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.daemon_start_time: datetime | None = None
         self._lp_task: asyncio.Task[None] | None = None
         self.egress_verified_at: datetime | None = None
+        self.last_deploy_detail: dict[str, Any] = {}
+        # options the running setup was built with; changes to only runtime options
+        # (block_egress) are applied live instead of reloading the entry
+        self.options_snapshot: dict[str, Any] = dict(entry.options)
+        self.data_snapshot: dict[str, Any] = dict(entry.data)
         self._egress_check_due = True       # verify after setup/redeploy/reboot, then every 30 min
         self._egress_task: asyncio.Task[None] | None = None
         self.device_info = DeviceInfo(
@@ -167,15 +197,17 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise
         self.last_deploy_result = result
         up = self.deployer.last_uptime_s
-        self._event("deploy", reason=reason, result=result, thermostat_uptime_s=up,
-                    egress=dict(self.deployer.last_egress))
+        detail = dict(self.deployer.last_deploy_detail)
+        explanation = explain_deploy(detail, up, reason)
+        self.last_deploy_detail = {**detail, "trigger": reason, "explanation": explanation,
+                                   "time": dt_util.utcnow().isoformat(timespec="seconds")}
+        self._event("deploy", reason=reason, result=result, explanation=explanation,
+                    thermostat_uptime_s=up, egress=dict(self.deployer.last_egress))
         ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_DEPLOY}_{self.config_entry.entry_id}")
-        _LOGGER.info(
-            "Daemon on %s (%s): %s; thermostat uptime %s%s",
-            self.host, reason, result,
-            _fmt_duration(up) if up is not None else "unknown",
-            " (recently rebooted)" if up is not None and up < 900 else "",
-        )
+        if detail.get("action") == "already_running":
+            _LOGGER.debug("Daemon on %s already running (pid %s)", self.host, detail.get("pid"))
+        else:
+            _LOGGER.info("Daemon on %s: %s (%s)", self.host, explanation, result)
         if result != "already running":
             self.long_poll_supported = None  # new daemon: re-detect
         if self.block_egress:
@@ -200,6 +232,54 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._egress_check_due = False
         self._egress_task = self.config_entry.async_create_background_task(
             self.hass, self._verify_egress(), f"{DOMAIN} egress check {self.host}")
+
+    async def async_set_block_egress(self, enable: bool) -> None:
+        """Apply or remove the rule live over ADB, then persist the option (no reload).
+
+        Raises HomeAssistantError (state unchanged) if the thermostat can't be reached;
+        the periodic verifier reconciles later in that case."""
+        try:
+            result = await self.deployer.verify_egress(enable, self.extra_ips())
+        except DeployError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="egress_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        self.egress_verified_at = dt_util.utcnow()
+        self._event("egress_toggle", enabled=enable, result=result, egress=dict(self.deployer.last_egress))
+        _LOGGER.info("Cloud-traffic block on %s %s (%s)", self.host, "enabled" if enable else "disabled", result)
+        new_options = {**self.config_entry.options, CONF_BLOCK_EGRESS: enable}
+        self.options_snapshot = dict(new_options)       # tells the update listener: already applied
+        self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+
+    def needs_reload(self) -> bool:
+        """True if the entry changed in a way that needs a restart of the setup.
+        Applies runtime-only changes (block_egress) live and updates the snapshot."""
+        new_opts, new_data = dict(self.config_entry.options), dict(self.config_entry.data)
+        changed = {k for k in set(new_opts) | set(self.options_snapshot)
+                   if new_opts.get(k) != self.options_snapshot.get(k)}
+        if new_data != self.data_snapshot or changed - RUNTIME_OPTIONS:
+            return True
+        if CONF_BLOCK_EGRESS in changed:
+            # changed from the Configure dialog (the switch updates the snapshot itself)
+            self.config_entry.async_create_background_task(
+                self.hass, self._apply_egress_from_options(bool(new_opts.get(CONF_BLOCK_EGRESS))),
+                f"{DOMAIN} egress apply {self.host}")
+        self.options_snapshot = new_opts
+        return False
+
+    async def _apply_egress_from_options(self, enable: bool) -> None:
+        try:
+            await self.deployer.verify_egress(enable, self.extra_ips())
+        except DeployError as err:
+            _LOGGER.warning("Could not %s the cloud-traffic block on %s now (%s); will retry",
+                            "apply" if enable else "remove", self.host, err)
+            self._egress_check_due = True
+            return
+        self.egress_verified_at = dt_util.utcnow()
+        self._event("egress_toggle", enabled=enable, result="applied from options",
+                    egress=dict(self.deployer.last_egress))
+        self.async_update_listeners()
 
     async def _verify_egress(self) -> None:
         try:

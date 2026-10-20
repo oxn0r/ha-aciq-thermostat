@@ -32,6 +32,30 @@ _LOGGER = logging.getLogger(__name__)
 
 DAEMON_LOCAL_PATH = Path(__file__).parent / "bin" / DAEMON_FILENAME
 
+# Process table for self-healing: which PID listens on the API port ("L pid/name") and
+# every thermostat_api process with its parent ("P pid ppid"). Long-poll children share
+# the name, so plain `pidof` can return several PIDs.
+def _procs_cmd(port: int) -> str:
+    return (f"netstat -ltnp 2>/dev/null | awk '$4 ~ /:{port}$/ {{print \"L \" $7}}'; "
+            "for p in $(pidof thermostat_api); do echo \"P $p $(cut -d' ' -f4 /proc/$p/stat 2>/dev/null)\"; done")
+
+
+def _parse_procs(out: str) -> tuple[int | None, dict[int, int]]:
+    # BusyBox netstat truncates program names ("thermostat_ap"), so the listener is
+    # matched by PID against the thermostat_api processes, never by name.
+    listen_pids: list[int] = []
+    procs: dict[int, int] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "L":
+            pid = parts[1].split("/")[0]
+            if pid.isdigit():
+                listen_pids.append(int(pid))
+        elif len(parts) == 3 and parts[0] == "P" and parts[1].isdigit() and parts[2].isdigit():
+            procs[int(parts[1])] = int(parts[2])
+    listener = next((p for p in listen_pids if p in procs), None)
+    return listener, procs
+
 # Never filtered by the egress rule (see _apply_egress)
 LOCAL_NETS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")
 
@@ -85,13 +109,16 @@ def bundled_daemon_sha256() -> str:
 class Deployer:
     """One short-lived ADB session per operation (adbd here is single-client friendly)."""
 
-    def __init__(self, host: str, adb_port: int) -> None:
+    def __init__(self, host: str, adb_port: int, api_port: int = 8080) -> None:
         self.host = host
         self.adb_port = adb_port
+        self.api_port = api_port
         self._lock = asyncio.Lock()
         self.last_allowlist: list[str] = []
         self.last_uptime_s: float | None = None
         self.last_egress: dict[str, Any] = {}
+        # what the last ensure_daemon did and why (action, cause, pids, thermostat uptime)
+        self.last_deploy_detail: dict[str, Any] = {}
 
     async def _session(self) -> AdbDeviceTcpAsync:
         # adbd on this device can stall a new client while another adb host holds
@@ -154,8 +181,9 @@ class Deployer:
                                         + ("" if ahu_n else " (may appear after the next state change)"),
                                         fatal=False))
 
-                port = await self._sh(dev, "netstat -ltn 2>/dev/null | grep -c ':8080 '")
-                running = await self._sh(dev, "pidof thermostat_api")
+                port = await self._sh(dev, f"netstat -ltn 2>/dev/null | grep -c ':{self.api_port} '")
+                listener, _ = _parse_procs(await self._sh(dev, _procs_cmd(self.api_port)))
+                running = str(listener) if listener else ""
                 res.checks.append(Check("api_port", port in ("0", "") or running.isdigit(),
                                         "free" if port in ("0", "") else f"in use by thermostat_api pid {running or '?'}"))
 
@@ -254,7 +282,8 @@ class Deployer:
                     raise DeployError("could not determine Home Assistant's IP for the allowlist")
                 self.last_allowlist = ips
                 args = " ".join(f"-a {shlex.quote(ip)}" for ip in ips)
-                want_cmd = f"{DAEMON_DEVICE_PATH} -d {args}"
+                port_arg = f"-p {self.api_port} " if self.api_port != 8080 else ""
+                want_cmd = f"{DAEMON_DEVICE_PATH} -d {port_arg}{args}"
 
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
                 if fw != VERIFIED_FIRMWARE:
@@ -265,15 +294,39 @@ class Deployer:
                 except ValueError:
                     self.last_uptime_s = None
 
-                pid = await self._sh(dev, "pidof thermostat_api")
+                listener, procs = _parse_procs(await self._sh(dev, _procs_cmd(self.api_port)))
+                pid = str(listener) if listener else ""
+                # anything named thermostat_api that is neither the listening daemon nor one of its
+                # long-poll children: orphaned children or leftover instances
+                strays = sorted(p for p, pp in procs.items() if p != listener and pp != listener)
                 have_sha = (await self._sh(dev, f"sha256sum {DAEMON_DEVICE_PATH} 2>/dev/null")).split(" ")[0]
                 cmdline = ""
                 if pid.isdigit():
                     cmdline = (await self._sh(dev, f"tr '\\0' ' ' < /proc/{pid}/cmdline")).strip()
-                if (not force and pid.isdigit() and have_sha == want_sha and cmdline == want_cmd):
+                if not pid.isdigit():
+                    cause = "not_running"
+                elif have_sha != want_sha:
+                    cause = "build_changed"
+                elif cmdline != want_cmd:
+                    cause = "args_changed"
+                elif force:
+                    cause = "forced"
+                else:
+                    cause = ""
+                detail: dict[str, Any] = {"cause": cause or None, "previous_pid": int(pid) if pid.isdigit() else None,
+                                          "thermostat_uptime_s": self.last_uptime_s}
+                if not cause:
+                    if strays:
+                        await self._sh(dev, "kill " + " ".join(map(str, strays)) + " 2>/dev/null; true")
+                        detail["strays_killed"] = strays
+                        _LOGGER.warning("Removed %d stray thermostat_api process(es) on %s: %s",
+                                        len(strays), self.host, strays)
                     if block_egress is not None:
                         await self._apply_egress(dev, block_egress, ips)
+                    self.last_deploy_detail = {**detail, "action": "already_running", "pid": int(pid)}
                     return "already running"
+                if strays:
+                    detail["strays_killed"] = strays    # the restart below kills every instance
 
                 pushed = False
                 if have_sha != want_sha:
@@ -293,9 +346,17 @@ class Deployer:
                     f"P=$(pidof thermostat_api); [ -n \"$P\" ] && kill $P && sleep 1; "
                     f"{swap}chmod 755 {DAEMON_DEVICE_PATH} && {want_cmd} >/dev/null 2>&1; sleep 1"
                 ), timeout=20)
-                new_pid = await self._sh(dev, "pidof thermostat_api")
-                if not new_pid.isdigit():
-                    raise DeployError("daemon did not start")
+                new_listener: int | None = None
+                for _ in range(3):
+                    new_listener, _procs = _parse_procs(await self._sh(dev, _procs_cmd(self.api_port)))
+                    if new_listener:
+                        break
+                    await asyncio.sleep(1)
+                if not new_listener:
+                    raise DeployError("daemon did not start (nothing listening on the API port)")
+                new_pid = str(new_listener)
+                self.last_deploy_detail = {**detail, "action": "upgraded" if pushed else "started",
+                                           "pid": int(new_pid)}
                 if block_egress is not None:
                     await self._apply_egress(dev, block_egress, ips)
                 return f"started pid {new_pid}" + (" (pushed new build)" if pushed else "")

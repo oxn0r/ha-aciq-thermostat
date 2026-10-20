@@ -47,7 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: AciqConfigEntry) -> bool
 
 
 async def _async_reload(hass: HomeAssistant, entry: AciqConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Reload only when the connection or daemon arguments changed. Runtime-only
+    options (Block cloud traffic) are applied live by the coordinator."""
+    if entry.runtime_data.needs_reload():
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AciqConfigEntry) -> bool:

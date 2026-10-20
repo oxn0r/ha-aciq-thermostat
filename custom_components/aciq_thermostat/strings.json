@@ -241,6 +241,9 @@
     },
     "checks_failed": {
       "message": "Pre-flight checks failed: {checks}"
+    },
+    "egress_failed": {
+      "message": "Could not change the cloud-traffic block on the thermostat: {error}. Nothing was changed; it will be re-checked automatically."
     }
   }
 }

@@ -157,6 +157,14 @@ class AciqSensor(AciqEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        if self.entity_description.key == "indoor_unit_firmware":
+        key = self.entity_description.key
+        if key == "indoor_unit_firmware":
             return self.coordinator.versions or None
+        if key == "daemon_started":
+            d = self.coordinator.last_deploy_detail
+            if not d:
+                return None
+            return {"last_deploy": d.get("time"), "last_deploy_reason": d.get("explanation"),
+                    "cause": d.get("cause"), "trigger": d.get("trigger"),
+                    "thermostat_uptime_at_deploy_s": d.get("thermostat_uptime_s")}
         return None

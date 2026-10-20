@@ -197,3 +197,61 @@ async def test_verify_egress_states(thermo: FakeThermostat) -> None:
     assert thermo.egress_chain == []
     # disabled and absent -> ok
     assert await d.verify_egress(False, []) == "ok"
+
+
+async def test_healthy_daemon_with_longpoll_children_is_kept(thermo: FakeThermostat) -> None:
+    """v1.0.3 bug: `pidof` returned daemon + long-poll child and the daemon got restarted."""
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    thermo.children = [5001, 5002]
+    thermo.killed.clear()
+    assert await d.ensure_daemon([]) == "already running"
+    assert thermo.killed == [] and thermo.children == [5001, 5002]
+    assert not any(c.startswith("P=$(pidof") for c in thermo.commands[-6:])   # no restart command
+    assert d.last_deploy_detail["action"] == "already_running"
+
+
+async def test_strays_are_killed_daemon_kept(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    thermo.children, thermo.strays = [5001], [6001, 6002]   # orphaned children / leftovers
+    thermo.killed.clear()
+    assert await d.ensure_daemon([]) == "already running"
+    assert thermo.killed == [6001, 6002] and thermo.daemon_pid == "4242"
+    assert d.last_deploy_detail["strays_killed"] == [6001, 6002]
+
+
+async def test_no_listener_but_processes_restarts_cleanly(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    thermo.daemon_pid, thermo.strays = "", [7001, 7002]      # daemon died, orphans remain
+    res = await d.ensure_daemon([])
+    assert res.startswith("started pid 4242")
+    assert 7001 in thermo.killed and 7002 in thermo.killed
+    assert d.last_deploy_detail["cause"] == "not_running"
+
+
+async def test_daemon_must_listen_after_start(thermo: FakeThermostat) -> None:
+    thermo.start_fails = True
+    with pytest.raises(DeployError, match="nothing listening"):
+        await Deployer("h", 5555).ensure_daemon([])
+
+
+async def test_custom_api_port_passed_to_daemon(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555, api_port=8099)
+    await d.ensure_daemon([])
+    assert thermo.daemon_cmdline == "/tmp/thermostat_api -d -p 8099 -a 10.0.0.2"
+    assert await d.ensure_daemon([]) == "already running"
+
+
+async def test_deploy_causes(thermo: FakeThermostat) -> None:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    assert d.last_deploy_detail["cause"] == "not_running" and d.last_deploy_detail["action"] == "upgraded"
+    await d.ensure_daemon(["10.0.0.9"])
+    assert d.last_deploy_detail["cause"] == "args_changed" and d.last_deploy_detail["action"] == "started"
+    thermo.daemon_sha = "old"
+    await d.ensure_daemon(["10.0.0.9"])
+    assert d.last_deploy_detail["cause"] == "build_changed" and d.last_deploy_detail["action"] == "upgraded"
+    await d.ensure_daemon(["10.0.0.9"], force=True)
+    assert d.last_deploy_detail["cause"] == "forced"

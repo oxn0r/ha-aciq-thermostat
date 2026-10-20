@@ -24,8 +24,8 @@ async def async_setup_entry(
 
 
 class BlockCloudSwitch(AciqEntity, SwitchEntity):
-    """Mirrors the 'block_egress' option. Changing it reloads the integration, which
-    applies (or removes) the runtime firewall rule on the thermostat over ADB."""
+    """Mirrors the 'block_egress' option. Toggling applies or removes the runtime firewall
+    rule on the thermostat immediately over ADB; the option is persisted for restarts."""
 
     _attr_translation_key = "block_cloud"
     _attr_entity_category = EntityCategory.CONFIG
@@ -52,13 +52,14 @@ class BlockCloudSwitch(AciqEntity, SwitchEntity):
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        self._set(True)
+        await self._set(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        self._set(False)
+        await self._set(False)
 
-    def _set(self, value: bool) -> None:
-        entry = self.coordinator.config_entry
-        if bool(entry.options.get(CONF_BLOCK_EGRESS, False)) == value:
+    async def _set(self, value: bool) -> None:
+        """Apply live over ADB (no reload, daemon untouched); raises on failure, state unchanged."""
+        if self.is_on == value:
             return
-        self.hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_BLOCK_EGRESS: value})
+        await self.coordinator.async_set_block_egress(value)
+        self.async_write_ha_state()
