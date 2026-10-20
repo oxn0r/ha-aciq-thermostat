@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.6 — 2026-10-20
+### Changed
+- **Cloud-traffic block self-heals its contents, not just its presence.** The 30-minute check (also after reboots and
+  redeploys) now compares the live rule set with the expected one and rebuilds it on any drift: missing, extra or
+  reordered lines in `ACIQ_EGRESS` (e.g. a chain built by an older version), a duplicated jump, or a jump that is no
+  longer first in `OUTPUT` (where an earlier rule could bypass it). Only our chain and our single jump are managed;
+  other rules are never touched. Drift is logged ("had drifted (chain differs; missing 1); rebuilt") and shown as the
+  switch's `last_repair` attribute. Verified on a TL04-1: a v1.0.4-built chain was detected and repaired, then
+  reported ok.
+- Turning the block off removes every jump into the chain (heals duplicates).
+
 ## 1.0.5 — 2026-10-20
 ### Added
 - **Thermostat clock kept in sync with Home Assistant** (option, on by default). With its internet blocked the

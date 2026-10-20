@@ -57,6 +57,16 @@ def _parse_procs(out: str) -> tuple[int | None, dict[int, int]]:
     listener = next((p for p in listen_pids if p in procs), None)
     return listener, procs
 
+# remove every jump into our chain (there should be exactly one; heal duplicates)
+_DEL_JUMPS = "while iptables -D OUTPUT -j ACIQ_EGRESS 2>/dev/null; do :; done"
+
+
+def _norm_rule(line: str) -> str:
+    """Normalize `iptables -S` output for comparison (it adds /32 and implicit -m udp/tcp)."""
+    line = re.sub(r"/32\b", "", line).replace(" -m udp", "").replace(" -m tcp", "")
+    return " ".join(line.split())
+
+
 # Never filtered by the egress rule (see _apply_egress)
 LOCAL_NETS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")
 
@@ -211,36 +221,65 @@ class Deployer:
         IPs, broadcast/multicast and replies. Stops the cloud client's endless DNS retries
         from leaving the thermostat. Idempotent; cleared by reboot and re-applied at deploy."""
         if not enable:
-            await self._sh(dev, "iptables -D OUTPUT -j ACIQ_EGRESS 2>/dev/null; "
+            await self._sh(dev, f"{_DEL_JUMPS}; "
                                 "iptables -F ACIQ_EGRESS 2>/dev/null; iptables -X ACIQ_EGRESS 2>/dev/null; true")
             self.last_egress = {"enabled": False}
             return
+        rules = await self._egress_rules(dev, allow_ips)
+        script = ("iptables -N ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS && "
+                  "{ iptables -A ACIQ_EGRESS -m state --state ESTABLISHED,RELATED -j RETURN 2>/dev/null; true; } && "
+                  + " && ".join(f"iptables -A ACIQ_EGRESS {r}" for r in rules)
+                  + f" && {{ {_DEL_JUMPS}; iptables -I OUTPUT 1 -j ACIQ_EGRESS; }}"
+                  " && echo EGRESS_OK")
+        out = await self._sh(dev, script)
+        if "EGRESS_OK" not in out:
+            # never leave a partial filter behind
+            await self._sh(dev, f"{_DEL_JUMPS}; iptables -F ACIQ_EGRESS 2>/dev/null; true")
+            raise DeployError(f"egress filter failed: {out[-200:]}")
+        drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
+        lan = next((r.split()[1] for r in rules if r.startswith("-d ")), None)
+        self.last_egress = {"enabled": True, "lan": lan, "dropped_packets": int(drops) if drops.isdigit() else None}
+
+    async def _egress_rules(self, dev: AdbDeviceTcpAsync, allow_ips: list[str]) -> list[str]:
+        """The rule bodies of ACIQ_EGRESS, in order, ending with DROP (optional state rule excluded).
+
+        Only public internet destinations are dropped: every private/local range stays open
+        (own LAN, any RFC1918 subnet/VLAN, link-local, CGNAT/Tailscale), plus explicitly
+        allowlisted IPs, broadcast, multicast and NTP."""
         addr = await self._sh(dev, "ip -4 -o addr show wlan0 | awk '{print $4}' | head -1")
         try:
             lan = str(ipaddress.ip_interface(addr).network)
         except ValueError as err:
             raise DeployError(f"cannot determine thermostat LAN for egress filter ({addr!r})") from err
-        # Only public internet destinations are dropped: every private/local range stays
-        # open (own LAN, any RFC1918 subnet/VLAN, link-local, CGNAT/Tailscale), plus
-        # explicitly allowlisted IPs, broadcast and multicast.
-        rules = ["-o lo -j RETURN",
-                 "-p udp --dport 123 -j RETURN",      # NTP: let a router-side NTP intercept answer
-                 *(f"-d {net} -j RETURN" for net in (lan, *LOCAL_NETS)),
-                 *(f"-d {shlex.quote(ip)} -j RETURN" for ip in allow_ips),
-                 "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN"]
-        script = ("iptables -N ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS && "
-                  "{ iptables -A ACIQ_EGRESS -m state --state ESTABLISHED,RELATED -j RETURN 2>/dev/null; true; } && "
-                  + " && ".join(f"iptables -A ACIQ_EGRESS {r}" for r in rules)
-                  + " && iptables -A ACIQ_EGRESS -j DROP"
-                  " && { iptables -C OUTPUT -j ACIQ_EGRESS 2>/dev/null || iptables -I OUTPUT 1 -j ACIQ_EGRESS; }"
-                  " && echo EGRESS_OK")
-        out = await self._sh(dev, script)
-        if "EGRESS_OK" not in out:
-            # never leave a partial filter behind
-            await self._sh(dev, "iptables -D OUTPUT -j ACIQ_EGRESS 2>/dev/null; iptables -F ACIQ_EGRESS 2>/dev/null; true")
-            raise DeployError(f"egress filter failed: {out[-200:]}")
-        drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
-        self.last_egress = {"enabled": True, "lan": lan, "dropped_packets": int(drops) if drops.isdigit() else None}
+        return ["-o lo -j RETURN",
+                "-p udp --dport 123 -j RETURN",      # NTP: let a router-side NTP intercept answer
+                *(f"-d {net} -j RETURN" for net in (lan, *LOCAL_NETS)),
+                *(f"-d {shlex.quote(ip)} -j RETURN" for ip in allow_ips),
+                "-d 255.255.255.255 -j RETURN", "-d 224.0.0.0/4 -j RETURN",
+                "-j DROP"]
+
+    async def _egress_drift(self, dev: AdbDeviceTcpAsync, allow_ips: list[str]) -> list[str]:
+        """What differs between the live rule set and the expected one (empty = healthy)."""
+        issues: list[str] = []
+        out_lines = [ln for ln in (await self._sh(dev, "iptables -S OUTPUT 2>/dev/null")).splitlines()
+                     if ln.startswith("-A OUTPUT")]
+        jumps = [i for i, ln in enumerate(out_lines) if _norm_rule(ln) == "-A OUTPUT -j ACIQ_EGRESS"]
+        if not jumps:
+            issues.append("jump missing")
+        elif len(jumps) > 1:
+            issues.append(f"{len(jumps)} jumps")
+        elif jumps[0] != 0:
+            issues.append(f"jump at position {jumps[0] + 1}, not first")
+        want = [_norm_rule(f"-A ACIQ_EGRESS {r}") for r in await self._egress_rules(dev, allow_ips)]
+        have = [_norm_rule(ln) for ln in (await self._sh(dev, "iptables -S ACIQ_EGRESS 2>/dev/null")).splitlines()
+                if ln.startswith("-A ACIQ_EGRESS") and "--state" not in ln]
+        if have != want:
+            missing = [w for w in want if w not in have]
+            extra = [h for h in have if h not in want]
+            issues.append("chain differs" + (f"; missing {len(missing)}" if missing else "")
+                          + (f"; extra {len(extra)}" if extra else "")
+                          + ("; order" if not missing and not extra else ""))
+        return issues
 
     async def _device_epoch(self, dev: AdbDeviceTcpAsync) -> tuple[float, float]:
         """(thermostat time, reference time at the same instant). `date +%s` truncates to whole
@@ -281,17 +320,26 @@ class Deployer:
             try:
                 present = (await self._sh(
                     dev, "iptables -C OUTPUT -j ACIQ_EGRESS 2>/dev/null && echo PRESENT || echo MISSING")) == "PRESENT"
-                if enable and present:
-                    drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
-                    self.last_egress = {**self.last_egress, "enabled": True,
-                                        "dropped_packets": int(drops) if drops.isdigit() else None}
-                    return "ok"
-                if not enable and not present:
-                    self.last_egress = {"enabled": False}
-                    return "ok"
-                allow = [ip for ip in [self._local_ip(dev), *extra_ips] if ip]
-                await self._apply_egress(dev, enable, list(dict.fromkeys(allow)))
-                return "reapplied" if enable else "removed"
+                allow = list(dict.fromkeys(ip for ip in [self._local_ip(dev), *extra_ips] if ip))
+                if not enable:
+                    if not present:
+                        self.last_egress = {"enabled": False}
+                        return "ok"
+                    await self._apply_egress(dev, False, [])
+                    return "removed"
+                if not present:
+                    await self._apply_egress(dev, True, allow)
+                    return "reapplied"
+                drift = await self._egress_drift(dev, allow)
+                if drift:
+                    await self._apply_egress(dev, True, allow)
+                    self.last_egress["repaired"] = drift
+                    return "repaired"
+                drops = await self._sh(dev, "iptables -L ACIQ_EGRESS -v -x -n 2>/dev/null | tail -1 | awk '{print $1}'")
+                self.last_egress = {**self.last_egress, "enabled": True,
+                                    "dropped_packets": int(drops) if drops.isdigit() else None}
+                self.last_egress.pop("repaired", None)
+                return "ok"
             finally:
                 await dev.close()
 

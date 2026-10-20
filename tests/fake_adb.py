@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 import hashlib
 from typing import Any
 
@@ -37,6 +38,7 @@ class FakeThermostat:
     strays: list[int] = field(default_factory=list)     # thermostat_api not under the daemon (ppid 1)
     killed: list[int] = field(default_factory=list)
     clock_skew: float = 0.0                              # thermostat clock minus real time (s)
+    output_rules: list[str] = field(default_factory=list)  # "-A OUTPUT ..." lines (incl. foreign rules)
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -87,13 +89,26 @@ class FakeAdb:
         if cmd.startswith("iptables -N ACIQ_EGRESS"):
             if not t.egress_ok:
                 return "iptables: No chain/target/match by that name."
-            t.egress_chain = [part.strip() for part in cmd.split("&&") if "iptables -A ACIQ_EGRESS" in part]
+            parts = re.findall(r"iptables -A ACIQ_EGRESS ([^;&]+?)(?: 2>/dev/null)?(?=\s*(?:&&|;|$))", cmd)
+            t.egress_chain = [f"iptables -A ACIQ_EGRESS {x.strip()}" for x in parts]
+            t.output_rules = [r for r in t.output_rules if r != "-A OUTPUT -j ACIQ_EGRESS"]
+            t.output_rules.insert(0, "-A OUTPUT -j ACIQ_EGRESS")
             return "EGRESS_OK"
         if cmd.startswith("iptables -C OUTPUT -j ACIQ_EGRESS"):
-            return "PRESENT" if t.egress_chain else "MISSING"
+            return "PRESENT" if "-A OUTPUT -j ACIQ_EGRESS" in t.output_rules else "MISSING"
+        if cmd.startswith("iptables -S OUTPUT"):
+            return "\n".join(["-P OUTPUT ACCEPT", *t.output_rules])
+        if cmd.startswith("iptables -S ACIQ_EGRESS"):
+            def fmt(rule: str) -> str:   # mimic iptables -S formatting
+                body = rule.replace("iptables -A ACIQ_EGRESS ", "")
+                body = re.sub(r"-d (\d+\.\d+\.\d+\.\d+)(?=\s)", r"-d \1/32", body)
+                body = body.replace("-p udp --dport", "-p udp -m udp --dport")
+                return f"-A ACIQ_EGRESS {body}"
+            return "\n".join(["-N ACIQ_EGRESS", *(fmt(r) for r in t.egress_chain)])
         if cmd.startswith("iptables -L ACIQ_EGRESS"):
             return "17"
-        if cmd.startswith("iptables -D OUTPUT -j ACIQ_EGRESS"):
+        if cmd.startswith("while iptables -D OUTPUT -j ACIQ_EGRESS"):
+            t.output_rules = [r for r in t.output_rules if r != "-A OUTPUT -j ACIQ_EGRESS"]
             t.egress_chain = []
             return ""
         if cmd == "id -u":

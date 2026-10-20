@@ -49,6 +49,7 @@ class BlockCloudSwitch(AciqEntity, SwitchEntity):
             "rule_active": bool(eg.get("enabled")),
             "dropped_packets": eg.get("dropped_packets"),
             "last_verified": verified.isoformat() if verified else None,
+            "last_repair": eg.get("repaired"),
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

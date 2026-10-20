@@ -336,7 +336,10 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self.egress_verified_at = dt_util.utcnow()
         self._event("egress_check", result=result, egress=dict(self.deployer.last_egress))
-        if result != "ok":
+        if result == "repaired":
+            _LOGGER.warning("Cloud-traffic block on %s had drifted (%s); rebuilt", self.host,
+                            ", ".join(self.deployer.last_egress.get("repaired", [])))
+        elif result != "ok":
             _LOGGER.warning("Cloud-traffic block on %s was missing and has been re-applied", self.host)
         else:
             _LOGGER.debug("Cloud-traffic block on %s verified: %s", self.host, self.deployer.last_egress)

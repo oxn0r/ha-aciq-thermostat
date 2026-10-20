@@ -157,7 +157,7 @@ async def test_egress_failure_cleans_up(thermo: FakeThermostat) -> None:
     thermo.egress_ok = False
     with pytest.raises(DeployError, match="egress filter failed"):
         await Deployer("h", 5555).ensure_daemon([], block_egress=True)
-    assert any(c.startswith("iptables -D OUTPUT -j ACIQ_EGRESS") for c in thermo.commands)
+    assert any(c.startswith("while iptables -D OUTPUT -j ACIQ_EGRESS") for c in thermo.commands)
 
 
 async def test_egress_bad_lan_address(thermo: FakeThermostat) -> None:
@@ -286,3 +286,58 @@ async def test_egress_allows_ntp(thermo: FakeThermostat) -> None:
     await Deployer("h", 5555).ensure_daemon([], block_egress=True)
     i_ntp = next(i for i, r in enumerate(thermo.egress_chain) if "--dport 123" in r)
     assert i_ntp < len(thermo.egress_chain) - 1          # before the final DROP
+
+
+async def _armed(thermo: FakeThermostat) -> Deployer:
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([], block_egress=True)
+    assert await d.verify_egress(True, []) == "ok"
+    return d
+
+
+async def test_verify_detects_missing_rule_line(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)
+    thermo.egress_chain = [r for r in thermo.egress_chain if "--dport 123" not in r]   # e.g. older version's chain
+    assert await d.verify_egress(True, []) == "repaired"
+    assert any("missing 1" in x for x in d.last_egress["repaired"])
+    assert any("--dport 123" in r for r in thermo.egress_chain)
+
+
+async def test_verify_detects_extra_rule(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)
+    thermo.egress_chain.insert(0, "iptables -A ACIQ_EGRESS -j RETURN")     # someone neutered the chain
+    assert await d.verify_egress(True, []) == "repaired"
+    assert "iptables -A ACIQ_EGRESS -j RETURN" not in thermo.egress_chain[:1]
+
+
+async def test_verify_detects_reordered_chain(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)
+    thermo.egress_chain.insert(0, thermo.egress_chain.pop())               # DROP moved to the top
+    assert await d.verify_egress(True, []) == "repaired"
+    assert any(x.endswith("order") for x in d.last_egress["repaired"])
+    assert thermo.egress_chain[-1].endswith("-j DROP")
+
+
+async def test_verify_heals_jump_position_and_duplicates_keeps_foreign(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)
+    foreign = "-A OUTPUT -d 1.2.3.4/32 -j ACCEPT"
+    thermo.output_rules = [foreign, "-A OUTPUT -j ACIQ_EGRESS", "-A OUTPUT -j ACIQ_EGRESS"]
+    assert await d.verify_egress(True, []) == "repaired"
+    assert thermo.output_rules == ["-A OUTPUT -j ACIQ_EGRESS", foreign]        # one jump, first; foreign kept
+    thermo.output_rules = [foreign, "-A OUTPUT -j ACIQ_EGRESS"]
+    assert await d.verify_egress(True, []) == "repaired"
+    assert "not first" in " ".join(d.last_egress["repaired"])
+
+
+async def test_verify_ok_tolerates_iptables_formatting(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)      # -S adds /32 and -m udp; must still compare equal
+    assert await d.verify_egress(True, ["10.0.0.40"]) == "repaired"   # allowlist changed -> rebuilt
+    assert await d.verify_egress(True, ["10.0.0.40"]) == "ok"
+    assert "repaired" not in d.last_egress
+
+
+async def test_disable_removes_all_jumps(thermo: FakeThermostat) -> None:
+    d = await _armed(thermo)
+    thermo.output_rules.append("-A OUTPUT -j ACIQ_EGRESS")                    # duplicate
+    assert await d.verify_egress(False, []) == "removed"
+    assert "-A OUTPUT -j ACIQ_EGRESS" not in thermo.output_rules

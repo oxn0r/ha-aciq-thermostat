@@ -568,3 +568,18 @@ async def test_clock_sync_option_off_and_failures(hass, aioclient_mock, mock_dep
         e.runtime_data._track_times(_with(state, uptime_s=5000))
         await hass.async_block_till_done()
         assert sync.await_count == 1 and e.runtime_data._clock_check_due is True
+
+
+async def test_repaired_egress_logged_with_details(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    e = await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "block_egress": True})
+    c = e.runtime_data
+
+    async def repaired(self, enable, extra):  # noqa: ANN001
+        self.last_egress = {"enabled": True, "repaired": ["chain differs; missing 1"]}
+        return "repaired"
+    with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress", repaired):
+        await c._verify_egress()
+    assert "had drifted (chain differs; missing 1); rebuilt" in caplog.text
+    c.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.thermostat_block_cloud_traffic").attributes["last_repair"] == ["chain differs; missing 1"]
