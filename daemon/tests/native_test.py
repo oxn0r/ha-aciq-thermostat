@@ -169,6 +169,38 @@ def test_client_disconnect_frees_waiter(d: Daemon) -> None:
     assert dt >= 2.5, dt                                                # a real wait slot was free again
 
 
+def _celsius_line(sp: int) -> str:
+    return (AHU3.format(ts=ts(), power=1, mode=1, auto=4, sp=sp)
+            .replace("temp_unit =1", "temp_unit =0"))
+
+
+def test_celsius_unit_reported_and_wakes_long_poll(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["temp_unit"] == "F" and s["setpoint"] == 72, s
+    sid = s["state_id"]
+    threading.Timer(0.5, d.append, [_celsius_line(21)]).start()        # wall unit switched to C
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["temp_unit"] == "C" and s["setpoint"] == 21 and dt < 3.5, (s, dt)
+
+
+def test_celsius_setpoint_validation_and_conversion(d: Daemon) -> None:
+    d.append(_celsius_line(21))
+    assert d.get("/api/state")["temp_unit"] == "C"
+    for body in ({"temperature": 31}, {"temperature": 15}, {"temperature": 99, "unit": "F"}):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and "16 and 30 C" in r["error"], (body, r)
+    # valid requests pass validation and reach the send step (no IPC queue on the test host)
+    for body in ({"temperature": 22}, {"temperature": 22, "unit": "C"}, {"temperature": 72, "unit": "F"}):
+        code, r = d.post("/api/control", body)
+        assert "between" not in r.get("error", ""), (body, r)
+
+
+def test_fahrenheit_unit_conversion(d: Daemon) -> None:
+    for body, ok in (({"temperature": 22, "unit": "C"}, True), ({"temperature": 31, "unit": "C"}, False)):
+        code, r = d.post("/api/control", body)                          # thermostat in F: 22C -> 72F
+        assert ("between" not in r.get("error", "")) is ok, (body, r)
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     failed = 0

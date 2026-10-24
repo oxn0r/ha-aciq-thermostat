@@ -120,7 +120,7 @@ async def test_control_payloads(hass: HomeAssistant, aioclient_mock, mock_deploy
                                        blocking=True)
         await hass.services.async_call("climate", "turn_off", {"entity_id": "climate.thermostat"}, blocking=True)
     posts = [call[2] for call in aioclient_mock.mock_calls if call[0] == "POST"]
-    assert posts == [{"temperature": 70}, {"mode": "heat"}, {"mode": "emergency_heat"}, {"mode": "off"}]
+    assert posts == [{"temperature": 70, "unit": "F"}, {"mode": "heat"}, {"mode": "emergency_heat"}, {"mode": "off"}]
 
 
 async def test_fan_blocked_in_auto(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:
@@ -165,7 +165,7 @@ async def test_metric_ha_converts(hass: HomeAssistant, aioclient_mock, mock_depl
         await hass.services.async_call("climate", "set_temperature",
                                        {"entity_id": "climate.thermostat", "temperature": 21}, blocking=True)
     posts = [call[2] for call in aioclient_mock.mock_calls if call[0] == "POST"]
-    assert posts == [{"temperature": 70}]  # 21 C -> 69.8 F -> 70
+    assert posts == [{"temperature": 70, "unit": "F"}]  # 21 C -> 69.8 F -> 70
 
 
 async def test_device_versions(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:

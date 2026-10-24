@@ -33,7 +33,9 @@ from .const import (
     FAN_ADJUSTABLE_MODES,
     FAN_MODES,
     MAX_TEMP,
+    MAX_TEMP_C,
     MIN_TEMP,
+    MIN_TEMP_C,
     PRESET_EMERGENCY_HEAT,
     PRESET_NONE,
     TEMP_STEP,
@@ -67,13 +69,10 @@ async def async_setup_entry(
 class AciqClimate(AciqEntity, ClimateEntity):
     _attr_name = None  # use the device name
     _attr_translation_key = "thermostat"
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_precision = PRECISION_TENTHS
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.FAN_ONLY]
     _attr_fan_modes = FAN_MODES
     _attr_preset_modes = [PRESET_NONE, PRESET_EMERGENCY_HEAT]
-    _attr_min_temp = MIN_TEMP
-    _attr_max_temp = MAX_TEMP
     _attr_target_temperature_step = TEMP_STEP
 
     def __init__(self, coordinator: AciqCoordinator) -> None:
@@ -116,9 +115,28 @@ class AciqClimate(AciqEntity, ClimateEntity):
     def preset_mode(self) -> str:
         return PRESET_EMERGENCY_HEAT if self._dev_mode == DEV_EMERGENCY_HEAT else PRESET_NONE
 
+    def _celsius(self) -> bool:
+        """The thermostat's own unit (its setpoint is reported and set in it)."""
+        return self.data.get("temp_unit") == "C"
+
+    @property
+    def temperature_unit(self) -> str:
+        return UnitOfTemperature.CELSIUS if self._celsius() else UnitOfTemperature.FAHRENHEIT
+
+    @property
+    def min_temp(self) -> float:
+        return MIN_TEMP_C if self._celsius() else MIN_TEMP
+
+    @property
+    def max_temp(self) -> float:
+        return MAX_TEMP_C if self._celsius() else MAX_TEMP
+
     @property
     def current_temperature(self) -> float | None:
-        return _num(self.data.get("current_temp"))
+        t = _num(self.data.get("current_temp"))          # always degF from the daemon
+        if t is not None and self._celsius():
+            return round((t - 32) * 5 / 9, 1)
+        return t
 
     @property
     def current_humidity(self) -> float | None:
@@ -194,6 +212,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
             payload["mode"] = HVAC_TO_DEV[hvac_mode]
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
             payload["temperature"] = int(round(temperature))
+            payload["unit"] = "C" if self._celsius() else "F"
         if payload:
             await self.coordinator.async_control(payload)
 

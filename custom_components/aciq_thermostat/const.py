@@ -48,6 +48,9 @@ DAEMON_DEVICE_PATH = "/tmp/thermostat_api"
 # Setpoint limits (device heating_max / cooling_min)
 MIN_TEMP = 60
 MAX_TEMP = 86
+# When the thermostat is set to Celsius (its own heating_max / cooling_min)
+MIN_TEMP_C = 16
+MAX_TEMP_C = 30
 TEMP_STEP = 1
 
 # Daemon "mode" values

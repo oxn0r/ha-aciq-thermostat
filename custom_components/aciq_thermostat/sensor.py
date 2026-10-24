@@ -159,6 +159,13 @@ class AciqSensor(AciqEntity, SensorEntity):
         return super().available
 
     @property
+    def native_unit_of_measurement(self) -> str | None:
+        # the setpoint is reported in the thermostat's own unit
+        if self.entity_description.key == "setpoint" and self.data.get("temp_unit") == "C":
+            return UnitOfTemperature.CELSIUS
+        return self.entity_description.native_unit_of_measurement
+
+    @property
     def native_value(self) -> Any:
         if self.entity_description.coord_fn is not None:
             return self.entity_description.coord_fn(self.coordinator)

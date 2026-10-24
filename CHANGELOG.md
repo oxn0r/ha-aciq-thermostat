@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.7 — 2026-10-24
+### Fixed
+- **Celsius thermostats** ([#4](https://github.com/oxn0r/ha-aciq-thermostat/issues/4)). With the thermostat set to °C
+  (on the wall unit or in NetHome Plus) its setpoint is reported in °C, but the integration always assumed °F, so 20 °C
+  showed as −7 °C. The daemon now reports the thermostat's unit (`temp_unit`) and the climate entity, its 16–30 °C /
+  60–86 °F range and the *Setpoint* sensor follow it; room temperature is converted as needed. Switching the unit on the
+  thermostat is picked up within ~1–2 s.
+- Setting a temperature on a °C thermostat could switch it back to °F: the setpoint command always carried a unit byte,
+  and the firmware changes the display unit when that byte differs. In °C mode the daemon now sends the unit-free
+  setpoint command (verified on a TL04-1: applied in °C, unit untouched). Requests may include `"unit": "C"|"F"` and are
+  converted to the thermostat's unit.
+- After a thermostat reboot in °C mode, the cold-start state read from memory rejected °C setpoints.
+
 ## 1.0.6 — 2026-10-20
 ### Changed
 - **Cloud-traffic block self-heals its contents, not just its presence.** The 30-minute check (also after reboots and

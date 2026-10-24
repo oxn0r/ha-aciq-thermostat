@@ -139,7 +139,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 ## Entities
 | Entity | Type | Notes |
 |---|---|---|
-| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F |
+| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) |
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
@@ -215,7 +215,7 @@ Other uses: chart compressor Hz against outdoor temperature to see how the heat 
 runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays near freezing (defrost behaviour).
 
 ## Known limitations
-- Fahrenheit thermostat setup assumed. Setpoints are whole °F, 60–86.
+- Setpoints are whole degrees: 60–86 °F, or 16–30 °C when the thermostat is set to Celsius (both supported; the integration follows the thermostat's unit).
 - **Auto** uses the thermostat's single setpoint with its built-in deadband, not a separate heat/cool range.
 - In **Heat**, a setpoint far above room temperature makes the system go straight to the furnace (dual-fuel staging).
   That's the equipment's behaviour, not the integration's.

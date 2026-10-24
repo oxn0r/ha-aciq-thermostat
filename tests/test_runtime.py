@@ -191,7 +191,7 @@ async def test_climate_services(hass, aioclient_mock, mock_deployer, state) -> N
             await hass.services.async_call("climate", svc, {"entity_id": "climate.thermostat", **data},
                                            blocking=True)
     posts = [call[2] for call in aioclient_mock.mock_calls if call[0] == "POST"]
-    assert posts == [{"mode": "heat"}, {"mode": "heat", "temperature": 71}, {"mode": "auto"}]
+    assert posts == [{"mode": "heat"}, {"mode": "heat", "temperature": 71, "unit": "F"}, {"mode": "auto"}]
 
 
 async def test_fan_mode_in_heat(hass, aioclient_mock, mock_deployer, state) -> None:

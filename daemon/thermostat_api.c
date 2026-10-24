@@ -119,14 +119,15 @@ struct thermostat_state {
     int elec_heat_only;
     int dev_wind;
     int state_from_memory;  /* 1 = dev fields filled from dev_app memory (cold start) */
+    int dev_temp_unit;      /* thermostat display/setpoint unit: 1 = F, 0 = C (setpoints use it) */
     /* meiju UI values */
     float ui_heat_sp;
     float ui_cool_sp;
     float raw_temp;
 };
 
-/* Last known state; survives log rotation */
-static struct thermostat_state cached_state;
+/* Last known state; survives log rotation (setpoint unit defaults to F until seen) */
+static struct thermostat_state cached_state = {.dev_temp_unit = 1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
 static char firmware_id[64] = "unknown";
@@ -233,6 +234,7 @@ static void parse_line(const char *line, struct thermostat_state *state) {
                 state->dev_auto_state = as;
                 state->dev_temp_set = ts;
                 state->setpoint = ts;
+                state->dev_temp_unit = tu ? 1 : 0;
                 p = strstr(line, "wind_speed:");
                 if (p) sscanf(p, "wind_speed: %d", &state->dev_wind);
             }
@@ -380,7 +382,7 @@ struct equipment {
     int compressor_hz, furnace_on, blower_on, blower_speed;
     int fault[4], fault_state, protect_state;
     /* current settings (state_setting), used when no AHU3 log line was seen yet */
-    int set_power, set_mode, set_wind, set_temp, set_aux, set_aux_alone;
+    int set_power, set_mode, set_wind, set_temp, set_aux, set_aux_alone, set_unit;
 };
 
 static pid_t find_pid(const char *name) {
@@ -461,6 +463,7 @@ static void read_equipment(struct equipment *eq) {
     eq->set_mode = b[94];
     eq->set_wind = b[97];
     eq->set_temp = b[98];
+    eq->set_unit = b[99];            /* state_setting.TsUnit: 1 = F, 0 = C */
     eq->set_aux = b[107];
 }
 
@@ -468,7 +471,8 @@ static void fill_from_memory(struct thermostat_state *state) {
     struct equipment eq;
     read_equipment(&eq);
     /* sanity: mode in the known set, setpoint inside device limits */
-    if (!eq.ok || eq.set_temp < 60 || eq.set_temp > 86) return;
+    if (!eq.ok) return;
+    if (eq.set_unit ? (eq.set_temp < 60 || eq.set_temp > 86) : (eq.set_temp < 16 || eq.set_temp > 30)) return;
     if (eq.set_mode != 1 && eq.set_mode != 2 && eq.set_mode != 4 && eq.set_mode != 5) return;
     state->have_dev_state = 1;
     state->state_from_memory = 1;
@@ -479,6 +483,7 @@ static void fill_from_memory(struct thermostat_state *state) {
     state->dev_wind = eq.set_wind <= 3 ? eq.set_wind : -1;
     state->elec_heat = eq.set_aux ? 1 : 0;
     state->elec_heat_only = eq.set_aux_alone ? 1 : 0;
+    state->dev_temp_unit = eq.set_unit ? 1 : 0;
 }
 
 /* raw 0xC0 temperature -> "%.1f" degF or "null" */
@@ -549,8 +554,8 @@ static long daemon_start_uptime = -1;
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
     char sig[256];
-    snprintf(sig, sizeof(sig), "%s|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-             hvac_mode_string(st), st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+             hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
              eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
@@ -583,6 +588,7 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         "  \"fan\": \"%s\",\n"
         "  \"ui_mode_raw\": %d,\n"
         "  \"setpoint\": %.0f,\n"
+        "  \"temp_unit\": \"%s\",\n"
         "  \"heat_limit\": %.0f,\n"
         "  \"cool_limit\": %.0f,\n"
         "  \"fan_mode\": %d,\n"
@@ -606,6 +612,7 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         state.have_dev_state ? fan_string(state.dev_wind) : "unknown",
         state.mode,
         state.setpoint,
+        state.dev_temp_unit ? "F" : "C",
         state.heat_limit,
         state.cool_limit,
         state.fan_mode,
@@ -641,6 +648,28 @@ int build_state_json(char *buf, size_t bufsize) {
  *
  * Returns 0 on success, -1 on error.
  */
+/*
+ * Celsius-mode setpoint (verified 2026-10-24 on a TL04-1 in C): a frame with only key 0x03
+ * (no 0x41 unit key) makes dev_app use its current unit -> "TempUnit:0,temperature:21",
+ * setTemp(.TsUnit=0 .Ts=21). Sending the 0x41 key instead would call setTempUnit() and
+ * switch the display unit.
+ */
+int send_msmart_frame(const unsigned char *frame, size_t len, char *error_buf, size_t error_size);
+#define MIN_TEMP_C 16
+#define MAX_TEMP_C 30
+int set_temperature_c(int temperature, char *error_buf, size_t error_size) {
+    if (temperature < MIN_TEMP_C || temperature > MAX_TEMP_C) {
+        snprintf(error_buf, error_size, "Temperature must be between %d and %d C", MIN_TEMP_C, MAX_TEMP_C);
+        return -1;
+    }
+    unsigned char frame[23] = {
+        0xaa, 0x16, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0xd0, 0x01,
+        0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    frame[17] = (unsigned char)(temperature * 2 + 50);
+    return send_msmart_frame(frame, sizeof(frame), error_buf, error_size);
+}
+
 int set_temperature(int temperature, char *error_buf, size_t error_size) {
     /* Validate temperature */
     if (temperature < MIN_TEMP || temperature > MAX_TEMP) {
@@ -1046,10 +1075,24 @@ void handle_request(int client_fd) {
                             success = 0;
                         }
                     }
-                    if (success && temperature > 0 && (temperature < MIN_TEMP || temperature > MAX_TEMP)) {
-                        snprintf(error_msg, sizeof(error_msg), "Temperature must be between %d and %d",
-                                 MIN_TEMP, MAX_TEMP);
-                        success = 0;
+                    /* Setpoints are in the thermostat's current unit; an explicit "unit" that
+                       differs is converted (so a client can always send what it displays). */
+                    int therm_c = 0;
+                    if (success && temperature > 0) {
+                        struct thermostat_state cur;
+                        get_state(&cur);
+                        therm_c = cur.have_dev_state && cur.dev_temp_unit == 0;
+                        char unit[4] = "";
+                        json_str(body_start, "unit", unit, sizeof(unit));
+                        int req_c = unit[0] ? (unit[0] == 'C' || unit[0] == 'c') : therm_c;
+                        if (req_c && !therm_c) temperature = (int)(temperature * 9.0 / 5.0 + 32 + 0.5);
+                        else if (!req_c && therm_c) temperature = (int)((temperature - 32) * 5.0 / 9.0 + 0.5);
+                        int lo = therm_c ? MIN_TEMP_C : MIN_TEMP, hi = therm_c ? MAX_TEMP_C : MAX_TEMP;
+                        if (temperature < lo || temperature > hi) {
+                            snprintf(error_msg, sizeof(error_msg), "Temperature must be between %d and %d %s",
+                                     lo, hi, therm_c ? "C" : "F");
+                            success = 0;
+                        }
                     }
                     if (success && fan[0] && strcmp(fan,"low") && strcmp(fan,"medium") &&
                         strcmp(fan,"high") && strcmp(fan,"auto")) {
@@ -1074,7 +1117,8 @@ void handle_request(int client_fd) {
                         else if (temperature > 0 || fan[0]) usleep(500000);
                     }
                     if (success && temperature > 0) {
-                        if (set_temperature(temperature, error_msg, sizeof(error_msg)) != 0) success = 0;
+                        if ((therm_c ? set_temperature_c(temperature, error_msg, sizeof(error_msg))
+                                     : set_temperature(temperature, error_msg, sizeof(error_msg))) != 0) success = 0;
                         else if (fan[0]) usleep(500000);
                     }
                     if (success && fan[0]) {
