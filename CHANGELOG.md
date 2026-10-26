@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased: 24 V groundwork (branch `24v-groundwork`)
+### Added
+- **Conventional 24 V thermostats are detected** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)).
+  Instead of retrying setup with "has not seen the thermostat's state yet", a Repairs issue explains that 24 V mode
+  isn't supported yet and shows what the thermostat reports; the raw 24 V state is logged once (and again when it
+  changes) for that issue. Pre-flight names 24 V mode too.
+- Daemon: `comm_mode` (communicating / 24v / unknown) and a read-only `v24` block parsed from `dev_24v_decorder`
+  lines: unit, room temperature, setpoint, Auto low/high, and the raw `op_mode`, `heat_mode`, terminal states and
+  terminal I/O, kept unmapped until captures show what they mean. Changes wake long-polls (room temperature excluded).
+  Nothing is controlled in 24 V mode.
+
 ## 1.1.0b1 — 2026-10-26 (pre-release)
 ### Added
 - **Auto with a heat/cool range** ([#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7)). Thermostats whose Auto

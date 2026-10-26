@@ -31,12 +31,13 @@ def ts() -> str:
 
 
 class Daemon:
-    def __init__(self) -> None:
+    def __init__(self, initial_log: str | None = None) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="tapi-"))
         self.log, self.old = self.dir / "lastlog", self.dir / "lastlog.old"
         (self.dir / "uptime").write_text("1234.56 999.00\n")
         (self.dir / "release").write_text("DISTRIB_ID='tina.tangly.20260314.152301'\n")
-        self.log.write_text(AHU3.format(ts=ts(), power=1, mode=1, auto=4, sp=72))
+        self.log.write_text(AHU3.format(ts=ts(), power=1, mode=1, auto=4, sp=72) if initial_log is None
+                            else initial_log)
         self.bin = self.dir / "tapi"
         defs = {"LOG_FILE": self.log, "LOG_FILE_OLD": self.old, "UPTIME_FILE": self.dir / "uptime",
                 "OS_RELEASE_FILE": self.dir / "release", "DEV_MSG_PATH": self.dir / "nomsg"}
@@ -260,11 +261,74 @@ def test_zone_celsius_validation(d: Daemon) -> None:
     assert "between" not in r.get("error", "") and "deadband" not in r.get("error", ""), r
 
 
+# Conventional 24 V mode: real lines from a Carrier TL04-1 (issue #5, 2026-10-24)
+V24 = ("{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<595>) rac: detect_comm_mode:1\n"
+       "{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<596>) rac: cpTempUnit:1 Tt:{tt} "
+       "Thigh:{hi} Tlow:67 Ts:{ts_} \n"
+       "{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<597>) rac: "
+       "rc24v_state.terminal_check_state=0 terminal_state=1f6 terminal_config=202 cpEmerHeat=0 Aaux=1 OB_dir=2\n"
+       "{ts} user.info dev_app: parse_24v_terminal] (dev_24v_decorder.c:<236>) rac: "
+       "terminal_set_mode=1,manual_terminal_state=0,terminal_state=76\n"
+       "{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<623>) rac: afterheat:0\n"
+       "{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<637>) rac: 24V terminal io: PEK:0 O/B:1 "
+       "G:1 W2:0 W1:1 Y2:1 Y1:1 C:1 RC:1 RH:0\n"
+       "{ts} user.info dev_app: process_24v_cmd_a3] (dev_24v_decorder.c:<638>) rac: rc24v_state.op_mode=77 "
+       "wind_fun=1 heat_mode=6 Tt={tt}\n")
+
+
+def v24(tt: float = 71.238998, hi: int = 74, sp: int = 68) -> str:
+    return V24.format(ts=ts(), tt=tt, hi=hi, ts_=sp)
+
+
+def test_communicating_mode_reported(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["comm_mode"] == "communicating" and s["v24"] == {"seen": False}, s
+
+
+def _t_24v_parsed(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["comm_mode"] == "24v" and s["dev"]["seen"] is False and s["mode"] == "unknown", s
+    v = s["v24"]
+    assert v["seen"] and v["unit"] == "F" and v["room"] == 71.2 and v["setpoint"] == 68, v
+    assert v["low"] == 67 and v["high"] == 74 and v["current_mode"] is None, v
+    assert (v["op_mode"], v["heat_mode"], v["wind_fun"]) == ("77", "6", "1"), v
+    assert (v["terminal_set_mode"], v["terminal_state"], v["terminal_state_a3"], v["terminal_config"]) == \
+        ("1", "76", "1f6", "202"), v
+    assert (v["emer_heat"], v["aux"], v["ob_dir"], v["afterheat"]) == ("0", "1", "2", "0"), v
+    assert v["terminal_io"] == "PEK:0 O/B:1 G:1 W2:0 W1:1 Y2:1 Y1:1 C:1 RC:1 RH:0", v
+
+
+def _t_24v_long_poll(d: Daemon) -> None:
+    sid = d.get("/api/state")["state_id"]
+    threading.Timer(0.5, d.append, [v24(tt=71.5)]).start()             # room only: no wake
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=3"))
+    assert s["state_id"] == sid and dt >= 2.5 and s["v24"]["room"] == 71.5, (dt, s["v24"])
+    threading.Timer(0.5, d.append, [v24(sp=70)]).start()               # setpoint: wakes
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["v24"]["setpoint"] == 70 and dt < 3.5, (dt, s["v24"])
+    d.append(f"{ts()} user.info dev_app: set24VMode] rc24v_state->last_mode=2,rc24v_state->current_mode=4\n")
+    assert d.get("/api/state")["v24"]["current_mode"] == 4
+
+
+def _t_meiju_comm_mode_only(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["comm_mode"] == "24v" and s["v24"] == {"seen": False}, s
+
+
+V24_TESTS = [(_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
+             (_t_meiju_comm_mode_only, lambda: UI.format(ts=ts(), db=4, zm=1).replace("comm_mode=0", "comm_mode=1"))]
+
+
 def main() -> int:
-    tests = [v for k, v in globals().items() if k.startswith("test_")]
+    tests: list = [v for k, v in globals().items() if k.startswith("test_")]
+    tests += V24_TESTS                                      # (test, initial log) pairs
     failed = 0
     for t in tests:
-        d = Daemon()
+        if isinstance(t, tuple):
+            t, log = t
+            d = Daemon(log())
+        else:
+            d = Daemon()
         try:
             t(d)
             print(f"PASS {t.__name__}")

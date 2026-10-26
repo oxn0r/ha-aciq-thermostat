@@ -187,10 +187,16 @@ class Deployer:
 
                 ahu = await self._sh(dev, "cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null | grep -c RAC_DEV_AHU3_STATE")
                 ahu_n = int(ahu) if ahu.isdigit() else 0
-                res.checks.append(Check("communicating_mode", ahu_n > 0,
-                                        f"{ahu_n} AHU3 state lines in log"
-                                        + ("" if ahu_n else " (may appear after the next state change)"),
-                                        fatal=False))
+                v24 = "0"
+                if not ahu_n:
+                    v24 = await self._sh(dev, "cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null | grep -c dev_24v_decorder")
+                v24_n = int(v24) if v24.isdigit() else 0
+                if v24_n:
+                    detail = f"conventional 24 V mode ({v24_n} 24 V state lines, no AHU3 lines): not supported yet"
+                else:
+                    detail = (f"{ahu_n} AHU3 state lines in log"
+                              + ("" if ahu_n else " (may appear after the next state change)"))
+                res.checks.append(Check("communicating_mode", ahu_n > 0, detail, fatal=False))
 
                 port = await self._sh(dev, f"netstat -ltn 2>/dev/null | grep -c ':{self.api_port} '")
                 listener, _ = _parse_procs(await self._sh(dev, _procs_cmd(self.api_port)))

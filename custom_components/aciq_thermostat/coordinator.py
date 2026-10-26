@@ -46,6 +46,7 @@ from .const import (
     DEPLOY_MIN_INTERVAL,
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
+    ISSUE_24V,
     ISSUE_DEPLOY,
     ISSUE_FIRMWARE,
     LONG_POLL_MAX_BACKOFF,
@@ -58,6 +59,7 @@ from .const import (
 from .deployer import Deployer, DeployError
 
 _LOGGER = logging.getLogger(__name__)
+_V24_LOGGED: dict[str, str] = {}   # host -> last 24 V summary logged
 
 # outage classes
 NET_DOWN = "network_down"        # thermostat not reachable at all (Wi-Fi drop, power loss)
@@ -461,8 +463,13 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = await self._handle_failure(err)
         self._recovered()
         self.failures = 0
+        issue_24v = f"{ISSUE_24V}_{self.config_entry.entry_id}"
         if not data.get("dev", {}).get("seen"):
+            if data.get("comm_mode") == "24v":
+                self._report_24v(issue_24v, data.get("v24", {}))
+                raise UpdateFailed(translation_domain=DOMAIN, translation_key="mode_24v")
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="no_state_yet")
+        ir.async_delete_issue(self.hass, DOMAIN, issue_24v)
         self._track_times(data)
 
         issue_id = f"{ISSUE_FIRMWARE}_{self.config_entry.entry_id}"
@@ -476,6 +483,23 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
         return data
+
+    def _report_24v(self, issue_id: str, v24: dict[str, Any]) -> None:
+        """Conventional 24 V wiring (issue #5): not supported yet. Say so clearly and log the
+        raw 24 V fields, which are what's needed to add support."""
+        summary = (f"setpoint {v24.get('setpoint')}, Auto {v24.get('low')}-{v24.get('high')}, "
+                   f"op_mode {v24.get('op_mode')}, heat_mode {v24.get('heat_mode')}, "
+                   f"terminal_state {v24.get('terminal_state')}") if v24.get("seen") else "no 24 V state lines yet"
+        ir.async_create_issue(
+            self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_24V, translation_placeholders={"summary": summary},
+            learn_more_url="https://github.com/oxn0r/ha-aciq-thermostat/issues/5",
+        )
+        # setup retries build a new coordinator each time: remember per host, log on change only
+        if _V24_LOGGED.get(self.host) != summary:
+            _V24_LOGGED[self.host] = summary
+            _LOGGER.warning("Thermostat on %s runs in conventional 24 V mode, which isn't supported yet "
+                            "(see issue #5). Raw 24 V state: %s", self.host, v24)
 
     async def _handle_failure(self, err: BaseException) -> dict[str, Any]:
         """Classify, log once per outage, redeploy when it can help. Returns data or raises."""

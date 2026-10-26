@@ -81,6 +81,10 @@
     "deploy_failed": {
       "title": "Could not start the thermostat API daemon",
       "description": "Deploying over ADB failed: {error}. Check that the thermostat is online and that ADB (TCP 5555) is reachable from Home Assistant."
+    },
+    "conventional_24v": {
+      "title": "Thermostat runs in conventional 24 V mode (not supported yet)",
+      "description": "This thermostat drives its equipment over conventional 24 V wiring instead of the communicating bus, and the integration can't read its mode or control it yet. Support is being worked on in issue #5. The thermostat reports: {summary}. Please add your diagnostics or Home Assistant log to that issue."
     }
   },
   "entity": {
@@ -275,6 +279,9 @@
     },
     "range_not_applied": {
       "message": "The thermostat did not apply the Auto range {low}-{high} (it reports {got_low}-{got_high}). It may be outside the thermostat's allowed setpoint range."
+    },
+    "mode_24v": {
+      "message": "The thermostat runs in conventional 24 V mode, which isn't supported yet (see the repair issue)"
     }
   }
 }

@@ -39,6 +39,8 @@ class FakeThermostat:
     killed: list[int] = field(default_factory=list)
     clock_skew: float = 0.0                              # thermostat clock minus real time (s)
     output_rules: list[str] = field(default_factory=list)  # "-A OUTPUT ..." lines (incl. foreign rules)
+    ahu3_lines: int = 5                                  # 0 + v24_lines > 0 = conventional 24 V wiring
+    v24_lines: int = 0
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -122,7 +124,9 @@ class FakeAdb:
         if "/proc/sysvipc/msg" in cmd:
             return "12"
         if "RAC_DEV_AHU3_STATE" in cmd:
-            return "5"
+            return str(t.ahu3_lines)
+        if "dev_24v_decorder" in cmd:
+            return str(t.v24_lines)
         if cmd.startswith("netstat -ltnp"):
             lines = [f"L {t.daemon_pid}/thermostat_ap"] if t.daemon_pid else []   # BusyBox truncates
             if t.daemon_pid:

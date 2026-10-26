@@ -87,4 +87,5 @@ PRESET_NONE = "none"
 PRESET_EMERGENCY_HEAT = "emergency_heat"
 
 ISSUE_FIRMWARE = "firmware_unverified"
+ISSUE_24V = "conventional_24v"
 ISSUE_DEPLOY = "deploy_failed"

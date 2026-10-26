@@ -35,6 +35,13 @@ async def test_preflight_wrong_firmware(thermo: FakeThermostat) -> None:
     assert "❌ firmware" in res.summary()
 
 
+async def test_preflight_reports_24v_mode(thermo: FakeThermostat) -> None:
+    thermo.ahu3_lines, thermo.v24_lines = 0, 412
+    res = await Deployer("h", 5555).preflight()
+    assert res.passed                                       # not fatal: setup explains it in Repairs
+    assert "⚠️ communicating_mode: conventional 24 V mode (412 24 V state lines" in res.summary()
+
+
 async def test_connect_retry_then_ok(thermo: FakeThermostat) -> None:
     thermo.connect_raises = 1
     assert (await Deployer("h", 5555).preflight()).passed

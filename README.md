@@ -74,7 +74,7 @@ Want the details? Everything below explains how it works, what's verified, and h
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
 | Same thermostat on another firmware build | Readings only; control is blocked automatically (see [Safety](#safety)) |
-| TL04-1 wired conventionally (24 V R/C/W/Y/G) | Not verified. Pre-flight warns that communicating mode wasn't detected |
+| TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | Not supported yet ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)). Detected: pre-flight and a Repairs issue say so, and the raw 24 V state is logged for that issue |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |
 
 Verified hardware: TL04-1 hardware V4.3, screen firmware LD:1.2.60, indoor unit firmware
