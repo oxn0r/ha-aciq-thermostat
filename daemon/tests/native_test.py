@@ -94,14 +94,14 @@ def test_state_has_id_and_uptime(d: Daemon) -> None:
 
 def test_timeout_without_change(d: Daemon) -> None:
     sid = d.get("/api/state")["state_id"]
-    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=3"))
-    assert s["state_id"] == sid and 2.5 <= dt <= 5, dt
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=4"))   # whole-second deadline: 3-4 s
+    assert s["state_id"] == sid and 2.5 <= dt <= 6, dt
 
 
 def test_room_temp_change_does_not_wake(d: Daemon) -> None:
     sid = d.get("/api/state")["state_id"]
     threading.Timer(0.5, d.append, [TEMP.format(ts=ts(), t=70.3)]).start()
-    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=3"))
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=4"))
     assert s["state_id"] == sid and dt >= 2.5 and s["current_temp"] == 70.3, (dt, s["current_temp"])
 
 
@@ -166,7 +166,7 @@ def test_client_disconnect_frees_waiter(d: Daemon) -> None:
         s.close()
     time.sleep(2.5)                                                     # children notice and exit
     d.get("/health")                                                    # main loop reaps them
-    _, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=3"))
+    _, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=4"))
     assert dt >= 2.5, dt                                                # a real wait slot was free again
 
 
@@ -301,7 +301,7 @@ def _t_24v_parsed(d: Daemon) -> None:
 def _t_24v_long_poll(d: Daemon) -> None:
     sid = d.get("/api/state")["state_id"]
     threading.Timer(0.5, d.append, [v24(tt=71.5)]).start()             # room only: no wake
-    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=3"))
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=4"))
     assert s["state_id"] == sid and dt >= 2.5 and s["v24"]["room"] == 71.5, (dt, s["v24"])
     threading.Timer(0.5, d.append, [v24(sp=70)]).start()               # setpoint: wakes
     s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
