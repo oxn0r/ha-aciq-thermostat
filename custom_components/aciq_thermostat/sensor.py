@@ -23,7 +23,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
-from .const import AUTO_STATE_NAMES, FAN_MODES
+from .const import (
+    AUTO_SETPOINT_RANGE,
+    AUTO_SETPOINT_SINGLE,
+    AUTO_SETPOINT_UNKNOWN,
+    AUTO_STATE_NAMES,
+    FAN_MODES,
+)
 from .coordinator import AciqCoordinator
 from .entity import AciqEntity
 
@@ -51,6 +57,24 @@ def _auto_state(d: dict[str, Any]) -> str:
         return "none"
     return AUTO_STATE_NAMES.get(d.get("dev", {}).get("auto_state", 0), "none")
 
+
+def _auto_setpoint(d: dict[str, Any]) -> str:
+    zc = d.get("dev", {}).get("zone_control")
+    return AUTO_SETPOINT_RANGE if zc == 1 else AUTO_SETPOINT_SINGLE if zc == 0 else AUTO_SETPOINT_UNKNOWN
+
+
+def _zone(key: str) -> Callable[[dict[str, Any], dict[str, Any]], Any]:
+    # stored on every thermostat, but only used while Auto holds a range
+    return lambda d, eq: d.get("dev", {}).get(key) if _auto_setpoint(d) == AUTO_SETPOINT_RANGE else None
+
+
+def _deadband(d: dict[str, Any], eq: dict[str, Any]) -> Any:
+    db = d.get("ui", {}).get("deadband")
+    return db if isinstance(db, int) and db >= 0 else None
+
+
+# Reported in the thermostat's own unit (follow it when it is set to Celsius)
+THERMOSTAT_UNIT_KEYS = ("setpoint", "auto_heat_setpoint", "auto_cool_setpoint", "deadband")
 
 TEMP: dict[str, Any] = dict(
     device_class=SensorDeviceClass.TEMPERATURE,
@@ -120,6 +144,26 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           entity_category=EntityCategory.DIAGNOSTIC,
                           entity_registry_enabled_default=False,
                           value_fn=lambda d, eq: _auto_state(d)),
+    AciqSensorDescription(key="auto_setpoint_type", translation_key="auto_setpoint_type",
+                          device_class=SensorDeviceClass.ENUM,
+                          options=[AUTO_SETPOINT_SINGLE, AUTO_SETPOINT_RANGE, AUTO_SETPOINT_UNKNOWN],
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: _auto_setpoint(d)),
+    AciqSensorDescription(key="auto_heat_setpoint", translation_key="auto_heat_setpoint",
+                          device_class=SensorDeviceClass.TEMPERATURE,
+                          native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=_zone("zone_lower")),
+    AciqSensorDescription(key="auto_cool_setpoint", translation_key="auto_cool_setpoint",
+                          device_class=SensorDeviceClass.TEMPERATURE,
+                          native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=_zone("zone_upper")),
+    # a temperature difference: no temperature device class (HA would convert it as absolute)
+    AciqSensorDescription(key="deadband", translation_key="deadband",
+                          native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=_deadband),
     AciqSensorDescription(key="clock_offset", translation_key="clock_offset",
                           device_class=SensorDeviceClass.DURATION,
                           native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -160,8 +204,8 @@ class AciqSensor(AciqEntity, SensorEntity):
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        # the setpoint is reported in the thermostat's own unit
-        if self.entity_description.key == "setpoint" and self.data.get("temp_unit") == "C":
+        # setpoints are reported in the thermostat's own unit
+        if self.entity_description.key in THERMOSTAT_UNIT_KEYS and self.data.get("temp_unit") == "C":
             return UnitOfTemperature.CELSIUS
         return self.entity_description.native_unit_of_measurement
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0b1 — 2026-10-26 (pre-release)
+### Added
+- **Auto with a heat/cool range** ([#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7)). Thermostats whose Auto
+  holds separate heat and cool setpoints (dev_app `temp_zone_control: 1`) now get `target_temp_low/high` in Auto, in
+  Home Assistant and HomeKit. Before, the card showed one setpoint that snapped back, because the thermostat ignores the
+  single setpoint in that mode. Thermostats whose Auto uses one setpoint are unchanged. The integration follows the
+  thermostat's setting automatically; Heat and Cool keep one setpoint.
+- Range writes use the same command as the app (keys `0x54` cool / `0x55` heat, captured from a user's log and
+  verified on a TL04-1). The daemon refuses ranges narrower than the thermostat's deadband, and the integration
+  confirms the thermostat reports the new range within a few seconds, with an error showing the values it kept if not.
+- Diagnostic sensors: **Auto setpoint type** (one setpoint / heat-cool range), **Auto heat setpoint**, **Auto cool
+  setpoint** and **Deadband**.
+- Diagnostics download: the last 10 commands with the daemon's reply and range readback, and an `auto_range` summary.
+- Logging: each command and the daemon's reply at debug level; rejected commands and unapplied ranges as warnings; a
+  log line when the thermostat's Auto setting changes (reload HomeKit Bridge then).
+- Daemon: reports `zone_control`, `deadband` and `temp_zone_mode`; Auto range changes wake long-polls.
+
 ## 1.0.7 — 2026-10-24
 ### Fixed
 - **Celsius thermostats** ([#4](https://github.com/oxn0r/ha-aciq-thermostat/issues/4)). With the thermostat set to °C

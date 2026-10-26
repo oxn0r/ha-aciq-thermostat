@@ -51,6 +51,7 @@ from .const import (
     LONG_POLL_MAX_BACKOFF,
     LONG_POLL_TIMEOUT,
     PROBE_TIMEOUT,
+    RANGE_VERIFY_TIMEOUT,
     REFRESH_DELAY,
     VERIFIED_FIRMWARE,
 )
@@ -138,6 +139,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.versions: dict[str, str] = {}
         self.outage: Outage | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=20)   # outages + deploys, for diagnostics
+        self.commands: deque[dict[str, Any]] = deque(maxlen=10)  # control commands + results, for diagnostics
         self.long_poll_supported: bool | None = None
         self.boot_time: datetime | None = None
         self.daemon_start_time: datetime | None = None
@@ -537,23 +539,65 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # --------------------------------------------------------------- control
 
+    def _command(self, payload: dict[str, Any], result: str, **fields: Any) -> None:
+        self.commands.append({"time": dt_util.utcnow().isoformat(timespec="seconds"),
+                              "payload": payload, "result": result, **fields})
+
     async def async_control(self, payload: dict[str, Any]) -> None:
         try:
             async with asyncio.timeout(10):
                 async with self.session.post(self.base + API_CONTROL, json=payload) as resp:
                     body = await resp.text()
                     if resp.status != 200:
+                        self._command(payload, "rejected", status=resp.status, response=body[:300])
+                        _LOGGER.warning("Thermostat on %s rejected %s: %s", self.host, payload, body)
                         raise HomeAssistantError(
                             translation_domain=DOMAIN,
                             translation_key="command_rejected",
                             translation_placeholders={"payload": str(payload), "error": body},
                         )
         except (aiohttp.ClientError, TimeoutError) as err:
+            self._command(payload, "unreachable", error=str(err) or type(err).__name__)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="unreachable",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
-        _LOGGER.debug("Sent %s", payload)
+        self._command(payload, "sent")
+        _LOGGER.debug("Sent %s to %s; daemon replied %s", payload, self.host, body.strip())
         await asyncio.sleep(REFRESH_DELAY)
         await self.async_refresh()
+
+    def auto_range(self) -> tuple[float | None, float | None]:
+        dev = (self.data or {}).get("dev", {})
+        def num(v: Any) -> float | None:
+            return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        return num(dev.get("zone_lower")), num(dev.get("zone_upper"))
+
+    async def async_set_auto_range(self, payload: dict[str, Any]) -> None:
+        """Send an Auto heat/cool range and confirm the thermostat applied it.
+
+        dev_app clamps values to its own limits and drops some without an error, so
+        the new range is checked in the reported state instead of trusting the send.
+        """
+        want = (float(payload["target_temp_low"]), float(payload["target_temp_high"]))
+        await self.async_control(payload)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + RANGE_VERIFY_TIMEOUT
+        while self.auto_range() != want and loop.time() < deadline:
+            await asyncio.sleep(1)
+            await self.async_refresh()
+        got = self.auto_range()
+        if got == want:
+            self.commands[-1]["readback"] = "applied"
+            _LOGGER.debug("Auto range on %s is now %s-%s", self.host, *want)
+            return
+        self.commands[-1].update(readback="not_applied", reported_low=got[0], reported_high=got[1])
+        _LOGGER.warning("Thermostat on %s did not apply Auto range %s-%s (reports %s-%s)",
+                        self.host, *want, *got)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="range_not_applied",
+            translation_placeholders={"low": f"{want[0]:g}", "high": f"{want[1]:g}",
+                                      "got_low": f"{got[0]:g}" if got[0] is not None else "?",
+                                      "got_high": f"{got[1]:g}" if got[1] is not None else "?"},
+        )

@@ -1,16 +1,25 @@
 """Climate entity.
 
-Mode mapping (daemon -> HA): off->OFF, auto->AUTO (single setpoint, device
-deadband), heat->HEAT, cool->COOL, fan_only->FAN_ONLY, emergency_heat->HEAT
-with preset "emergency_heat".
+Mode mapping (daemon -> HA): off->OFF, auto->AUTO, heat->HEAT, cool->COOL,
+fan_only->FAN_ONLY, emergency_heat->HEAT with preset "emergency_heat".
+
+Auto follows the thermostat's own setting (dev_app temp_zone_control): one setpoint
+with the device deadband, or a heat/cool range (target_temperature_low/high).
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.climate import ClimateEntity
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
+from homeassistant.components.climate.const import (
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
+    ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
+)
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
@@ -18,6 +27,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
 from .const import (
+    AUTO_SETPOINT_RANGE,
+    AUTO_SETPOINT_SINGLE,
+    AUTO_SETPOINT_UNKNOWN,
     AUTO_STATE_COOL,
     AUTO_STATE_DRY,
     AUTO_STATE_HEAT,
@@ -42,6 +54,8 @@ from .const import (
 )
 from .coordinator import AciqCoordinator
 from .entity import AciqEntity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _num(value: Any) -> float | None:
@@ -83,12 +97,32 @@ class AciqClimate(AciqEntity, ClimateEntity):
         self._action = HVACAction.IDLE
         self._track_on_mode()
         self._action = self._compute_action()
+        self._auto_setpoint = self.auto_setpoint_type()
 
     @callback
     def _handle_coordinator_update(self) -> None:
         self._track_on_mode()
         self._action = self._compute_action()
+        kind = self.auto_setpoint_type()
+        if kind != self._auto_setpoint and AUTO_SETPOINT_UNKNOWN not in (kind, self._auto_setpoint):
+            _LOGGER.info("Auto mode on %s now uses %s; reload HomeKit Bridge if this entity is exposed "
+                         "to Apple Home", self.coordinator.host,
+                         "a heat/cool range" if kind == AUTO_SETPOINT_RANGE else "one setpoint")
+        self._auto_setpoint = kind
         super()._handle_coordinator_update()
+
+    def auto_setpoint_type(self) -> str:
+        """single / range from the thermostat's Auto setting; unknown until it is reported
+        (older daemons never report it: they behave as single)."""
+        zc = self.data.get("dev", {}).get("zone_control")
+        if zc == 1:
+            return AUTO_SETPOINT_RANGE
+        if zc == 0:
+            return AUTO_SETPOINT_SINGLE
+        return AUTO_SETPOINT_UNKNOWN
+
+    def _range_in(self, mode: str) -> bool:
+        return mode == DEV_AUTO and self.auto_setpoint_type() == AUTO_SETPOINT_RANGE
 
     def _track_on_mode(self) -> None:
         if self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_FAN_ONLY):
@@ -101,7 +135,9 @@ class AciqClimate(AciqEntity, ClimateEntity):
     @property
     def supported_features(self) -> ClimateEntityFeature:
         f = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.PRESET_MODE
-        if self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_EMERGENCY_HEAT):
+        if self._range_in(self._dev_mode):
+            f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_EMERGENCY_HEAT):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE
         if self._dev_mode in FAN_ADJUSTABLE_MODES:
             f |= ClimateEntityFeature.FAN_MODE
@@ -146,6 +182,18 @@ class AciqClimate(AciqEntity, ClimateEntity):
     def target_temperature(self) -> float | None:
         if self.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE:
             return _num(self.data.get("setpoint"))
+        return None
+
+    @property
+    def target_temperature_low(self) -> float | None:
+        if self.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE:
+            return self.coordinator.auto_range()[0]
+        return None
+
+    @property
+    def target_temperature_high(self) -> float | None:
+        if self.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE:
+            return self.coordinator.auto_range()[1]
         return None
 
     @property
@@ -208,11 +256,26 @@ class AciqClimate(AciqEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         payload: dict[str, Any] = {}
+        target = self._dev_mode
         if (hvac_mode := kwargs.get("hvac_mode")) is not None:
-            payload["mode"] = HVAC_TO_DEV[hvac_mode]
+            payload["mode"] = target = HVAC_TO_DEV[hvac_mode]
+        unit = "C" if self._celsius() else "F"
+        low, high = kwargs.get(ATTR_TARGET_TEMP_LOW), kwargs.get(ATTR_TARGET_TEMP_HIGH)
+        if low is not None or high is not None:
+            if not self._range_in(target):
+                raise ServiceValidationError(translation_domain=DOMAIN, translation_key="range_unavailable")
+            cur_low, cur_high = self.coordinator.auto_range()
+            payload["target_temp_low"] = int(round(low if low is not None else cur_low or 0))
+            payload["target_temp_high"] = int(round(high if high is not None else cur_high or 0))
+            payload["unit"] = unit
+            await self.coordinator.async_set_auto_range(payload)
+            return
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
+            if self._range_in(target):
+                # the thermostat ignores the single setpoint while Auto holds a range
+                raise ServiceValidationError(translation_domain=DOMAIN, translation_key="range_required")
             payload["temperature"] = int(round(temperature))
-            payload["unit"] = "C" if self._celsius() else "F"
+            payload["unit"] = unit
         if payload:
             await self.coordinator.async_control(payload)
 

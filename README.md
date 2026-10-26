@@ -139,7 +139,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 ## Entities
 | Entity | Type | Notes |
 |---|---|---|
-| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) |
+| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
@@ -152,6 +152,15 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Run pre-flight checks | button | maintenance |
 | Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Clock offset · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
+| Auto setpoint type · Auto heat setpoint · Auto cool setpoint · Deadband | diagnostic | *One setpoint* or *Heat/cool range*; the heat/cool setpoints are shown only while Auto holds a range |
+
+### Auto: one setpoint or a heat/cool range
+The thermostat's Auto either holds **one setpoint** (with its deadband) or a **heat/cool range**, depending on its own
+setting. The integration follows it automatically, with nothing to configure: in Auto the card shows one target, or
+low/high targets, and switches within a second or two if the setting changes. Heat and Cool always use one setpoint.
+Range writes are checked: if the thermostat doesn't report the new range (it clamps values to its limits), you get an
+error with the values it kept. Apple Home builds its controls when HomeKit Bridge starts, so **reload HomeKit Bridge**
+after changing this setting on the thermostat.
 
 The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
 
@@ -216,7 +225,8 @@ runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays
 
 ## Known limitations
 - Setpoints are whole degrees: 60–86 °F, or 16–30 °C when the thermostat is set to Celsius (both supported; the integration follows the thermostat's unit).
-- **Auto** uses the thermostat's single setpoint with its built-in deadband, not a separate heat/cool range.
+- **Auto heat/cool range** support is new (1.1.0 beta): verified from a user's logs and a write test on a
+  single-setpoint TL04-1, not yet confirmed on a thermostat running Auto with a range.
 - In **Heat**, a setpoint far above room temperature makes the system go straight to the furnace (dual-fuel staging).
   That's the equipment's behaviour, not the integration's.
 - Fan speed can't be changed in Auto or Fan-only (the thermostat locks it).

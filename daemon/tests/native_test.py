@@ -201,6 +201,65 @@ def test_fahrenheit_unit_conversion(d: Daemon) -> None:
         assert ("between" not in r.get("error", "")) is ok, (body, r)
 
 
+# Real lines from a thermostat with Auto holding a range (issue #7, 2026-10-25)
+ZONE = ("{ts} user.info dev_app: rac_dev_send_dev_state] <I>(dev_app/src/dev_ui_state.c:<735>)rac: "
+        "RAC_DEV_AHU3_STATE, temp_zone_control: {zc}, temp_zone_lower_limit ={lo}.000000  "
+        "temp_zone_upper_limit={hi}.000000\n")
+UI = ("{ts} user.info meiju: thermostat_ui_dev_state_response] hour_type:1, volume:8, bluetooth_open:1, "
+      "wifi_open:1, wifi_connected:1, wifi_rssi:53, deadband:{db}, temp_zone_mode:{zm}, heating_max=86,         "
+      "cooling_min=60, setpoint_range_open=0, aux_heat_open=0, smart_dehum_open=0, comm_mode=0, aux_type=0, "
+      "language=1,         dehum_time_left:30, dehum_interval:30, weather_temp:16.900000, available_mode:77, "
+      "day_or_night:2\n")
+
+
+def test_zone_unknown_until_seen(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["dev"]["zone_control"] == -1 and s["ui"]["deadband"] == -1 and s["ui"]["temp_zone_mode"] == -1, s
+
+
+def test_zone_state_parsed_and_wakes_long_poll(d: Daemon) -> None:
+    d.append(ZONE.format(ts=ts(), zc=0, lo=68, hi=79) + UI.format(ts=ts(), db=4, zm=0))
+    s = d.get("/api/state")
+    assert s["dev"]["zone_control"] == 0 and s["ui"]["deadband"] == 4 and s["ui"]["temp_zone_mode"] == 0, s
+    sid = s["state_id"]
+    threading.Timer(0.5, d.append, [ZONE.format(ts=ts(), zc=1, lo=68, hi=77) + UI.format(ts=ts(), db=5, zm=1)]).start()
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["dev"]["zone_control"] == 1 and s["dev"]["zone_upper"] == 77 and dt < 3.5, (s, dt)
+    assert s["ui"]["deadband"] == 5 and s["ui"]["temp_zone_mode"] == 1, s
+    sid = s["state_id"]                                                 # range change alone wakes too
+    threading.Timer(0.5, d.append, [ZONE.format(ts=ts(), zc=1, lo=67, hi=77)]).start()
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["dev"]["zone_lower"] == 67 and dt < 3.5, (s, dt)
+
+
+def test_zone_control_validation(d: Daemon) -> None:
+    d.append(ZONE.format(ts=ts(), zc=1, lo=68, hi=77) + UI.format(ts=ts(), db=5, zm=1))
+    assert d.get("/api/state")["ui"]["deadband"] == 5
+    for body, err in (({"target_temp_low": 59, "target_temp_high": 77}, "between 60 and 86 F"),
+                      ({"target_temp_low": 68, "target_temp_high": 87}, "between 60 and 86 F"),
+                      ({"target_temp_low": 70, "target_temp_high": 74}, "deadband (5)"),
+                      ({"target_temp_low": 75}, "deadband (5)"),          # other side kept at 77
+                      ({"target_temp_low": 21, "target_temp_high": 23, "unit": "C"}, "deadband (5)")):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and err in r["error"], (body, r)
+    # valid ranges pass validation and reach the send step (no IPC queue on the test host)
+    for body in ({"target_temp_low": 67, "target_temp_high": 78}, {"target_temp_high": 80},
+                 {"target_temp_low": 20, "target_temp_high": 26, "unit": "C"},
+                 {"mode": "auto", "target_temp_low": 66, "target_temp_high": 76}):
+        code, r = d.post("/api/control", body)
+        assert "between" not in r.get("error", "") and "deadband" not in r.get("error", ""), (body, r)
+
+
+def test_zone_celsius_validation(d: Daemon) -> None:
+    d.append(_celsius_line(21) + ZONE.format(ts=ts(), zc=1, lo=20, hi=25) + UI.format(ts=ts(), db=4, zm=1))
+    for body, err in (({"target_temp_low": 15, "target_temp_high": 25}, "between 16 and 30 C"),
+                      ({"target_temp_low": 22, "target_temp_high": 23}, "deadband (2)")):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and err in r["error"], (body, r)
+    code, r = d.post("/api/control", {"target_temp_low": 20, "target_temp_high": 24})
+    assert "between" not in r.get("error", "") and "deadband" not in r.get("error", ""), r
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     failed = 0

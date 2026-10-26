@@ -22,6 +22,9 @@ API_CONTROL = "/api/control"
 # Seconds to wait after a command before re-reading state (long-poll usually
 # delivers the change sooner)
 REFRESH_DELAY = 1
+# After an Auto range write: how long to wait for the thermostat to report the new
+# range (dev_app clamps or ignores values without an error)
+RANGE_VERIFY_TIMEOUT = 6
 # Long-poll: daemon holds GET /api/state?wait= up to this many seconds
 LONG_POLL_TIMEOUT = 25
 # Retry/backoff ceiling for the long-poll loop and outage re-checks
@@ -74,6 +77,11 @@ AUTO_STATE_DRY = 3
 # Fallback when auto_state is unknown: indoor coil vs room temperature (degF)
 COIL_HEATING_DELTA = 15.0
 COIL_COOLING_DELTA = 10.0
+
+# Auto setpoint type (dev_app temp_zone_control): one setpoint or a heat/cool range
+AUTO_SETPOINT_SINGLE = "single"
+AUTO_SETPOINT_RANGE = "range"
+AUTO_SETPOINT_UNKNOWN = "unknown"
 
 PRESET_NONE = "none"
 PRESET_EMERGENCY_HEAT = "emergency_heat"

@@ -113,8 +113,11 @@ struct thermostat_state {
     int dev_mode;        /* raw dev_app mode enum (meaning not yet mapped) */
     int dev_auto_state;
     float dev_temp_set;
-    float zone_lower;
-    float zone_upper;
+    float zone_lower;    /* Auto heat setpoint when zone_control = 1 */
+    float zone_upper;    /* Auto cool setpoint when zone_control = 1 */
+    int zone_control;    /* Auto holds a heat/cool range (1) or one setpoint (0); -1 unknown */
+    int deadband;        /* meiju deadband (thermostat unit), -1 unknown */
+    int temp_zone_mode;  /* meiju temp_zone_mode (mirrors zone_control), -1 unknown */
     int elec_heat;
     int elec_heat_only;
     int dev_wind;
@@ -127,7 +130,8 @@ struct thermostat_state {
 };
 
 /* Last known state; survives log rotation (setpoint unit defaults to F until seen) */
-static struct thermostat_state cached_state = {.dev_temp_unit = 1};
+static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control = -1,
+                                                .deadband = -1, .temp_zone_mode = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
 static char firmware_id[64] = "unknown";
@@ -249,7 +253,9 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             if (p && sscanf(p, "compressor_state =%d", &val) == 1) state->compressor_state = val;
         }
         if (strstr(line, "RAC_DEV_AHU3_STATE, temp_zone_control:")) {
-            float val; char *p;
+            float val; char *p; int zc;
+            p = strstr(line, "temp_zone_control:");
+            if (p && sscanf(p, "temp_zone_control: %d", &zc) == 1) state->zone_control = zc ? 1 : 0;
             p = strstr(line, "temp_zone_lower_limit =");
             if (p && sscanf(p, "temp_zone_lower_limit =%f", &val) == 1) state->zone_lower = val;
             p = strstr(line, "temp_zone_upper_limit=");
@@ -261,6 +267,15 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             if (p && sscanf(p, "heatTemperValue=%f", &val) == 1) state->ui_heat_sp = val;
             p = strstr(line, "coolTemperValue=");
             if (p && sscanf(p, "coolTemperValue=%f", &val) == 1) state->ui_cool_sp = val;
+        }
+
+        /* meiju UI settings: deadband:4, temp_zone_mode:1, ... */
+        if (strstr(line, "thermostat_ui_dev_state_response")) {
+            int val; char *p;
+            p = strstr(line, "deadband:");
+            if (p && sscanf(p, "deadband:%d", &val) == 1 && val >= 0 && val < 20) state->deadband = val;
+            p = strstr(line, "temp_zone_mode:");
+            if (p && sscanf(p, "temp_zone_mode:%d", &val) == 1) state->temp_zone_mode = val ? 1 : 0;
         }
 
         /* Parse wifi state */
@@ -548,15 +563,16 @@ static long read_uptime(void) {
 static long daemon_start_uptime = -1;
 
 /*
- * Fingerprint of the fields a client acts on (mode/setpoints/fan/aux/auto state and
+ * Fingerprint of the fields a client acts on (mode/setpoints/Auto range/fan/aux/auto state and
  * equipment run states). Room temperature/humidity are deliberately excluded: they
  * change constantly and would defeat long-polling.
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
     char sig[256];
-    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
              hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
+             st->zone_control, st->zone_lower, st->zone_upper,
              eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
              eq->fault_state, eq->protect_state, control_enabled);
@@ -602,8 +618,8 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         "  \"uptime_s\": %ld,\n"
         "  \"daemon_uptime_s\": %ld,\n"
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
-        "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
-        "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f},\n"
+        "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_control\": %d, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
+        "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f, \"deadband\": %d, \"temp_zone_mode\": %d},\n"
         "  \"equipment\": %s\n"
         "}\n",
         state.current_temp,
@@ -624,9 +640,10 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         control_enabled ? "true" : "false",
         sid, up, (up >= 0 && daemon_start_uptime >= 0) ? up - daemon_start_uptime : -1L,
         state.have_dev_state ? "true" : "false", state.dev_power, state.dev_mode,
-        state.dev_auto_state, state.state_from_memory ? "memory" : "log", state.dev_temp_set, state.zone_lower, state.zone_upper,
+        state.dev_auto_state, state.state_from_memory ? "memory" : "log", state.dev_temp_set,
+        state.zone_control, state.zone_lower, state.zone_upper,
         state.elec_heat, state.elec_heat_only, state.dev_wind,
-        state.ui_heat_sp, state.ui_cool_sp,
+        state.ui_heat_sp, state.ui_cool_sp, state.deadband, state.temp_zone_mode,
         equip_json
     );
 }
@@ -784,6 +801,35 @@ int set_mode(const char *mode, char *error_buf, size_t error_size) {
     return -1;
 }
 
+/*
+ * Auto heat/cool range (temp zone). Layout of the app's frame (issue #7 capture,
+ * 2026-10-25): unit key 0x41, key 0x54 = cool/high (setTempZoneHighControl), key 0x55 =
+ * heat/low (setTempZoneLowControl), values temp*2+50. Write path verified 2026-10-26 on
+ * a TL04-1 (zone values changed and restored). dev_app clamps to its limits and only
+ * applies the values; it does not change zone_control. In Celsius the unit key is left
+ * out so the display unit is kept (as for setpoints).
+ */
+int set_zone(int low, int high, int celsius, char *error_buf, size_t error_size) {
+    if (celsius) {
+        unsigned char f[29] = {
+            0xaa, 0x1c, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0xd0, 0x02,
+            0x54, 0x00, 0x00, 0x00, 0x01, 0x00, 0x55, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00
+        };
+        f[17] = (unsigned char)(high * 2 + 50);
+        f[23] = (unsigned char)(low * 2 + 50);
+        return send_msmart_frame(f, sizeof(f), error_buf, error_size);
+    }
+    unsigned char f[35] = {
+        0xaa, 0x22, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0xd0, 0x03,
+        0x41, 0x00, 0x00, 0x00, 0x01, 0x02, 0x54, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x55, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    f[23] = (unsigned char)(high * 2 + 50);
+    f[29] = (unsigned char)(low * 2 + 50);
+    return send_msmart_frame(f, sizeof(f), error_buf, error_size);
+}
+
 /* Modes where fan speed control is verified (app/screen allow it) */
 #define FAN_ALLOWED_MODES "cool,heat"  /* verified 2026-10-19; auto + fan_only lock fan in UI */
 static int fan_allowed_in(const char *mode) {
@@ -839,14 +885,30 @@ static int json_str(const char *json, const char *key, char *out, size_t outsz) 
 }
 
 /* Parse control body: any of temperature / mode / fan; returns -1 if none */
-int parse_control_json(const char *json, char *mode, size_t msz, int *temperature, char *fan, size_t fsz) {
-    *temperature = 0;
+static int json_int(const char *json, const char *key) {
+    char pat[32];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (p && (p = strchr(p + strlen(pat), ':'))) return atoi(p + 1);
+    return 0;
+}
+
+int parse_control_json(const char *json, char *mode, size_t msz, int *temperature, char *fan, size_t fsz,
+                       int *low, int *high) {
     mode[0] = fan[0] = '\0';
-    const char *p = strstr(json, "\"temperature\"");
-    if (p && (p = strchr(p, ':'))) *temperature = atoi(p + 1);
+    *temperature = json_int(json, "temperature");
+    *low = json_int(json, "target_temp_low");
+    *high = json_int(json, "target_temp_high");
     json_str(json, "mode", mode, msz);
     json_str(json, "fan", fan, fsz);
-    return (*temperature > 0 || mode[0] || fan[0]) ? 0 : -1;
+    return (*temperature > 0 || *low > 0 || *high > 0 || mode[0] || fan[0]) ? 0 : -1;
+}
+
+/* Value in the thermostat's unit (therm_c) from one in the requested unit (req_c) */
+static int to_therm_unit(int t, int req_c, int therm_c) {
+    if (req_c && !therm_c) return (int)(t * 9.0 / 5.0 + 32 + 0.5);
+    if (!req_c && therm_c) return (int)((t - 32) * 5.0 / 9.0 + 0.5);
+    return t;
 }
 
 /* Build HTTP response */
@@ -1049,8 +1111,9 @@ void handle_request(int client_fd) {
                 body_start += 4;
 
                 char mode[24], fan[16];
-                int temperature = 0;
-                if (parse_control_json(body_start, mode, sizeof(mode), &temperature, fan, sizeof(fan)) == 0) {
+                int temperature = 0, zlow = 0, zhigh = 0;
+                if (parse_control_json(body_start, mode, sizeof(mode), &temperature, fan, sizeof(fan),
+                                       &zlow, &zhigh) == 0) {
                     char error_msg[256] = {0};
                     int success = 1;
 
@@ -1078,20 +1141,41 @@ void handle_request(int client_fd) {
                     /* Setpoints are in the thermostat's current unit; an explicit "unit" that
                        differs is converted (so a client can always send what it displays). */
                     int therm_c = 0;
-                    if (success && temperature > 0) {
+                    if (success && (temperature > 0 || zlow > 0 || zhigh > 0)) {
                         struct thermostat_state cur;
                         get_state(&cur);
                         therm_c = cur.have_dev_state && cur.dev_temp_unit == 0;
                         char unit[4] = "";
                         json_str(body_start, "unit", unit, sizeof(unit));
                         int req_c = unit[0] ? (unit[0] == 'C' || unit[0] == 'c') : therm_c;
-                        if (req_c && !therm_c) temperature = (int)(temperature * 9.0 / 5.0 + 32 + 0.5);
-                        else if (!req_c && therm_c) temperature = (int)((temperature - 32) * 5.0 / 9.0 + 0.5);
                         int lo = therm_c ? MIN_TEMP_C : MIN_TEMP, hi = therm_c ? MAX_TEMP_C : MAX_TEMP;
-                        if (temperature < lo || temperature > hi) {
-                            snprintf(error_msg, sizeof(error_msg), "Temperature must be between %d and %d %s",
-                                     lo, hi, therm_c ? "C" : "F");
-                            success = 0;
+                        if (temperature > 0) {
+                            temperature = to_therm_unit(temperature, req_c, therm_c);
+                            if (temperature < lo || temperature > hi) {
+                                snprintf(error_msg, sizeof(error_msg), "Temperature must be between %d and %d %s",
+                                         lo, hi, therm_c ? "C" : "F");
+                                success = 0;
+                            }
+                        }
+                        if (success && (zlow > 0 || zhigh > 0)) {
+                            /* One side given: keep the other at its current value (the app
+                               always sends both) */
+                            zlow = zlow > 0 ? to_therm_unit(zlow, req_c, therm_c) : (int)(cur.zone_lower + 0.5);
+                            zhigh = zhigh > 0 ? to_therm_unit(zhigh, req_c, therm_c) : (int)(cur.zone_upper + 0.5);
+                            /* dev_app doesn't enforce the deadband for these keys; keep at least
+                               the thermostat's own deadband (2 F / 1 C until it is seen) */
+                            int gap = cur.deadband > 0 ? cur.deadband : 2;
+                            if (therm_c) gap = cur.deadband > 0 ? (cur.deadband + 1) / 2 : 1;
+                            if (zlow < lo || zlow > hi || zhigh < lo || zhigh > hi) {
+                                snprintf(error_msg, sizeof(error_msg), "Auto range must be between %d and %d %s",
+                                         lo, hi, therm_c ? "C" : "F");
+                                success = 0;
+                            } else if (zhigh - zlow < gap) {
+                                snprintf(error_msg, sizeof(error_msg),
+                                         "Auto range %d-%d %s is narrower than the deadband (%d)",
+                                         zlow, zhigh, therm_c ? "C" : "F", gap);
+                                success = 0;
+                            }
                         }
                     }
                     if (success && fan[0] && strcmp(fan,"low") && strcmp(fan,"medium") &&
@@ -1114,11 +1198,15 @@ void handle_request(int client_fd) {
                     /* Same order as the app: mode, then setpoint, then fan */
                     if (success && mode[0]) {
                         if (set_mode(mode, error_msg, sizeof(error_msg)) != 0) success = 0;
-                        else if (temperature > 0 || fan[0]) usleep(500000);
+                        else if (temperature > 0 || zlow > 0 || fan[0]) usleep(500000);
                     }
                     if (success && temperature > 0) {
                         if ((therm_c ? set_temperature_c(temperature, error_msg, sizeof(error_msg))
                                      : set_temperature(temperature, error_msg, sizeof(error_msg))) != 0) success = 0;
+                        else if (fan[0] || zlow > 0) usleep(500000);
+                    }
+                    if (success && zlow > 0) {
+                        if (set_zone(zlow, zhigh, therm_c, error_msg, sizeof(error_msg)) != 0) success = 0;
                         else if (fan[0]) usleep(500000);
                     }
                     if (success && fan[0]) {
@@ -1126,12 +1214,14 @@ void handle_request(int client_fd) {
                     }
 
                     if (success) {
-                        char t[32] = "null";
+                        char t[32] = "null", zl[16] = "null", zh[16] = "null";
                         if (temperature > 0) snprintf(t, sizeof(t), "%d", temperature);
+                        if (zlow > 0) { snprintf(zl, sizeof(zl), "%d", zlow); snprintf(zh, sizeof(zh), "%d", zhigh); }
                         snprintf(body, sizeof(body),
-                            "{\"success\": true, \"mode\": \"%s\", \"temperature\": %s, \"fan\": \"%s\", "
-                            "\"message\": \"Control command sent\"}\n",
-                            mode, t, fan);
+                            "{\"success\": true, \"mode\": \"%s\", \"temperature\": %s, "
+                            "\"target_temp_low\": %s, \"target_temp_high\": %s, \"fan\": \"%s\", "
+                            "\"unit\": \"%s\", \"message\": \"Control command sent\"}\n",
+                            mode, t, zl, zh, fan, therm_c ? "C" : "F");
                         build_http_response(response, sizeof(response), 200, "OK",
                                            "application/json", body);
                     } else {
@@ -1141,7 +1231,7 @@ void handle_request(int client_fd) {
                     }
                 } else {
                     /* Parse error */
-                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, mode off|auto|cool|heat|fan_only|emergency_heat, fan low|medium|high|auto\"}");
+                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, target_temp_low/high 60-86, mode off|auto|cool|heat|fan_only|emergency_heat, fan low|medium|high|auto\"}");
                     build_http_response(response, sizeof(response), 400, "Bad Request",
                                        "application/json", body);
                 }
@@ -1206,7 +1296,8 @@ void print_usage(const char *prog) {
     printf("  GET  /api/state    - Returns thermostat state as JSON\n");
     printf("       ?wait=<state_id>&timeout=<s>  long-poll: answer on change (max %d s)\n", MAX_WAIT_SECONDS);
     printf("  POST /api/control  - Set mode and temperature\n");
-    printf("       Body: any of {\"temperature\": 60-86, \"mode\": \"off|auto|cool|heat|fan_only|emergency_heat\", \"fan\": \"low|medium|high|auto\"}\n");
+    printf("       Body: any of {\"temperature\": 60-86, \"target_temp_low\": 60-86, \"target_temp_high\": 60-86,\n");
+    printf("                     \"mode\": \"off|auto|cool|heat|fan_only|emergency_heat\", \"fan\": \"low|medium|high|auto\", \"unit\": \"F|C\"}\n");
     printf("  GET  /health       - Health check\n");
     printf("\n");
     printf("Examples:\n");

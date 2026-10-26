@@ -86,6 +86,22 @@
       },
       "clock_offset": {
         "default": "mdi:clock-check-outline"
+      },
+      "auto_setpoint_type": {
+        "default": "mdi:thermostat-auto",
+        "state": {
+          "single": "mdi:thermostat",
+          "range": "mdi:arrow-expand-horizontal"
+        }
+      },
+      "auto_heat_setpoint": {
+        "default": "mdi:thermometer-chevron-up"
+      },
+      "auto_cool_setpoint": {
+        "default": "mdi:thermometer-chevron-down"
+      },
+      "deadband": {
+        "default": "mdi:arrow-collapse-horizontal"
       }
     },
     "binary_sensor": {

@@ -176,6 +176,23 @@
       },
       "clock_offset": {
         "name": "Clock offset"
+      },
+      "auto_setpoint_type": {
+        "name": "Auto setpoint type",
+        "state": {
+          "single": "One setpoint",
+          "range": "Heat/cool range",
+          "unknown": "Unknown"
+        }
+      },
+      "auto_heat_setpoint": {
+        "name": "Auto heat setpoint"
+      },
+      "auto_cool_setpoint": {
+        "name": "Auto cool setpoint"
+      },
+      "deadband": {
+        "name": "Deadband"
       }
     },
     "binary_sensor": {
@@ -249,6 +266,15 @@
     },
     "egress_failed": {
       "message": "Could not change the cloud-traffic block on the thermostat: {error}. Nothing was changed; it will be re-checked automatically."
+    },
+    "range_unavailable": {
+      "message": "A heat/cool range can only be set in Auto when the thermostat holds a range in Auto (its Auto uses one setpoint, or the mode is not Auto)"
+    },
+    "range_required": {
+      "message": "Auto on this thermostat holds a heat/cool range: set target_temp_low and target_temp_high instead of a single temperature"
+    },
+    "range_not_applied": {
+      "message": "The thermostat did not apply the Auto range {low}-{high} (it reports {got_low}-{got_high}). It may be outside the thermostat's allowed setpoint range."
     }
   }
 }
