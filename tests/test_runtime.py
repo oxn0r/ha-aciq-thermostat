@@ -153,6 +153,7 @@ async def test_diagnostics(hass, aioclient_mock, mock_deployer, state) -> None:
     e = await _setup(hass, aioclient_mock, state)
     d = await async_get_config_entry_diagnostics(hass, e)
     assert d["state"]["mode"] == "auto" and d["preflight"]["passed"]
+    assert d["host"] == d["allowed_ips"] == d["preflight"]["serial"] == "**REDACTED**"
     mock_deployer[0].side_effect = DeployError("x")
     assert (await async_get_config_entry_diagnostics(hass, e))["preflight"] == {"error": "x"}
 

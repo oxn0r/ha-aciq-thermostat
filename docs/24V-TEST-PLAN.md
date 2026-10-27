@@ -5,7 +5,7 @@ room temperature, what the thermostat is calling for, and its wiring. It sends *
 control action returns an error. The goal is to confirm the mapping so control can be added safely.
 
 ## Install
-1. Install **v1.1.0b2**: in HACS enable *Show beta versions* for this repository and update, or copy
+1. Install **v1.1.0b3** (or newer): in HACS enable *Show beta versions* for this repository and update, or copy
    `custom_components/aciq_thermostat` from the release zip into `/config/custom_components/`.
 2. Restart Home Assistant. The daemon on the thermostat updates itself.
 3. You should see a Repairs note, *24 V thermostat: read-only test build*. That's expected.
@@ -47,6 +47,16 @@ that the card's action says heating / cooling / fan / idle at the right times.
 - Power the thermostat off and on (or reboot it) and check the readings come back.
 - Switch the thermostat to °C once and back.
 
+**D. After the first runs (v1.1.0b3)**
+1. **Cool call voltage:** during a cool call (outputs `G, Y2, Y1`), measure AC volts at the thermostat's base between
+   **Y1 and C** and between **G and C** (about 24 V expected). Only if you're comfortable; your HVAC tech can do it.
+   This tells us whether the thermostat is really powering the outputs it reports when the equipment doesn't run.
+2. Repeat **B2 (cooling)** once the equipment is checked or on a warm day.
+3. Do **part C**.
+4. **App capture for control:** with the integration entry disabled, capture the log as before while changing, from
+   the **phone app** (not the screen): the setpoint in Heat and in Cool, the Auto low and high, then each mode
+   (Off, Heat, Cool, Auto, Fan, Aux/Emergency heat), about 30 s apart, noting the time of each.
+
 ## Report back on issue #5
 1. The **diagnostics download** (Settings → Devices & services → ACiQ Thermostat → ⋮ → Download diagnostics), taken
    right after part B.
@@ -61,7 +71,8 @@ that the card's action says heating / cooling / fan / idle at the right times.
 | Y1 → Y2 → W1 staging timing (how *Compressor stage 2* and *Aux heat call* behave) | B1, B4 |
 | O/B direction with this wiring (`OB_dir=2`: on in heat) | B1 vs B2 |
 | What `op_mode`, `heat_mode`, `wind_fun` and the fan setting mean | B5, and whether they ever change |
-| How Off, Aux and continuous fan are set by the app | a later capture from the app, once readings are confirmed |
+| Does a cool call energize Y1/G when the equipment doesn't run? | D1 |
+| The exact commands the app sends for setpoints and modes | D4 |
 
 Control will then be added one function at a time (setpoint first, then Heat / Cool / Off), each tested with you
 watching, using the thermostat's own 24 V commands (`set24VTemp`, `set24VMode`).

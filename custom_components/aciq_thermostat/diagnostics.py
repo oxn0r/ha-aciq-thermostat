@@ -1,14 +1,18 @@
-"""Diagnostics download: latest state, last deploy result, pre-flight checks."""
+"""Diagnostics download: latest state, last deploy result, pre-flight checks (serial and IPs redacted)."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import AciqConfigEntry
 from .const import VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
 from .deployer import DeployError, bundled_daemon_sha256
+
+# users post this download publicly on GitHub issues
+TO_REDACT = {"serial", "host", "allowed_ips"}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqConfigEntry) -> dict[str, Any]:
@@ -17,7 +21,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         preflight = await c.async_run_preflight()
     except DeployError as err:
         preflight = {"error": str(err)}
-    return {
+    return async_redact_data({
         "host": c.host,
         "options": dict(entry.options),
         "verified_firmware": VERIFIED_FIRMWARE,
@@ -45,4 +49,4 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "allowed_ips": c.allowed_ips(),
         "preflight": preflight,
         "state": c.data,
-    }
+    }, TO_REDACT)

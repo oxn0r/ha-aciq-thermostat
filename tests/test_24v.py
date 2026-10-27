@@ -41,6 +41,10 @@ STEPS = [
     ("auto no demand", 0, "206", 0, 72, HVACMode.AUTO, "none", HVACAction.FAN),
     ("auto cool call", 0, "264", 1, 72, HVACMode.AUTO, "none", HVACAction.COOLING),
     ("off", 4, "0", 0, 72, HVACMode.OFF, "none", HVACAction.OFF),
+    # from the reporter's 10-minute runs with v1.1.0b2
+    ("fan only", 5, "204", 0, 72, HVACMode.FAN_ONLY, "none", HVACAction.FAN),
+    ("heat, boiler took over", 1, "216", 0, 75, HVACMode.HEAT, "none", HVACAction.HEATING),
+    ("auto cool, stage 1", 0, "244", 1, 72, HVACMode.AUTO, "none", HVACAction.COOLING),
 ]
 
 
@@ -90,7 +94,7 @@ async def test_24v_read_only_entities(hass, aioclient_mock, mock_deployer, state
     assert st.attributes["preset_mode"] == preset and "fan_mode" not in st.attributes
     if mode == HVACMode.AUTO:                                                # Auto holds a range here
         assert (st.attributes["target_temp_low"], st.attributes["target_temp_high"]) == (67, 79)
-    elif mode != HVACMode.OFF:
+    elif mode not in (HVACMode.OFF, HVACMode.FAN_ONLY):                     # fan only has no setpoint
         assert st.attributes["temperature"] == sp
     assert st.attributes["current_temperature"] == 72.3
     calls = {"Y": "binary_sensor.thermostat_compressor_call", "W": "binary_sensor.thermostat_aux_heat_call",

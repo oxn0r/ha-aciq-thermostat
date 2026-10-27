@@ -1,15 +1,19 @@
 """Conventional 24 V thermostats (issue #5): read-only view of the daemon's raw v24 block.
 
 Mapped from a supervised capture on a Carrier TL04-1 (2026-10-27):
-- meiju UI mode: 0 auto, 1 heat, 2 cool, 3 aux/emergency heat, 4 off (dev_app powerState=0)
+- meiju UI mode: 0 auto, 1 heat, 2 cool, 3 aux/emergency heat, 4 off (dev_app powerState=0), 5 fan only
+  (set24VMode 5, outputs G)
 - Ts = single setpoint; Tlow/Thigh = Auto heat/cool pair (Auto holds a range when temp_zone_mode=1)
 - UI auto_state: 2 heating demand, 1 cooling demand, 0 none
 - terminal_state / terminal_config are bitmasks in the "24V terminal io" order (bit 0 first):
   terminal_state = wired terminals, terminal_config = outputs the thermostat drives now;
   0x200 is set in terminal_config whenever the thermostat is on (RH wasn't wired there)
 
-Not yet confirmed against equipment running for long: whether terminal_config stays on
-through compressor/stage delays. Nothing here sends commands.
+Confirmed with 10-minute equipment runs (issue #5, v1.1.0b2): terminal_config tracks the calls through
+compressor delays; Y2 follows the setpoint gap, not a timer; in Heat with Aaux=1 the thermostat swaps
+Y1/Y2 for W1 after ~10 min and keeps O/B, while emergency heat drops O/B. Not yet confirmed: that a
+cool call (G+Y without O/B) energizes the terminals (the reporter's equipment didn't run).
+Nothing here sends commands.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from typing import Any
 TERMINALS = ("PEK", "O/B", "G", "W2", "W1", "Y2", "Y1", "C", "RC", "RH")
 POWER_BIT = 0x200
 CALL_TERMINALS = ("Y1", "Y2", "W1", "W2", "G", "O/B")   # outputs that call equipment
-UI_MODES = {0: "auto", 1: "heat", 2: "cool", 3: "emergency_heat", 4: "off"}
+UI_MODES = {0: "auto", 1: "heat", 2: "cool", 3: "emergency_heat", 4: "off", 5: "fan_only"}
 READ_ONLY_24V = "24v"
 
 

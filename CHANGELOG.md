@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0b3 — 2026-10-27 (pre-release)
+Still read-only on 24 V units. From the first equipment runs on [#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5).
+### Fixed
+- 24 V: the thermostat's Fan mode (UI mode 5) showed as `unknown`; it's now *Fan only*.
+- Diagnostics download: the thermostat serial, its IP and the allowed IPs are redacted, since the download is often
+  posted on public issues.
+### Changed
+- 24 V test plan: added a 24 VAC check of Y1/G during a cool call, part C, and a phone-app capture for control.
+
 ## 1.1.0b2 — 2026-10-27 (pre-release)
 Includes 1.1.0b1 (Auto heat/cool range, #7).
 ### Added
