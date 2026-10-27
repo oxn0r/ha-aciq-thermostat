@@ -139,7 +139,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_EMERGENCY_HEAT):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if self._dev_mode in FAN_ADJUSTABLE_MODES:
+        if self._dev_mode in FAN_ADJUSTABLE_MODES and not self.data.get("read_only"):
             f |= ClimateEntityFeature.FAN_MODE
         return f
 
@@ -216,6 +216,8 @@ class AciqClimate(AciqEntity, ClimateEntity):
         mode = self._dev_mode
         if mode == DEV_OFF:
             return HVACAction.OFF
+        if self.data.get("read_only") == "24v":
+            return self._v24_action(mode)
         eq = self.equipment
         if eq.get("furnace_on"):
             return HVACAction.HEATING
@@ -227,6 +229,28 @@ class AciqClimate(AciqEntity, ClimateEntity):
                 return HVACAction.HEATING
             return self._auto_compressor_action(eq)
         if mode == DEV_FAN_ONLY or eq.get("blower_on"):
+            return HVACAction.FAN
+        return HVACAction.IDLE
+
+    def _v24_action(self, mode: str) -> HVACAction:
+        """24 V: from the outputs the thermostat drives (terminal_config). W1/W2 = aux heat;
+        Y1/Y2 = compressor, direction from the mode, in Auto from auto_state, else from O/B
+        (on for heat with the tested wiring, OB_dir=2)."""
+        active = set(self.data.get("v24_outputs", {}).get("active", []))
+        if active & {"W1", "W2"}:
+            return HVACAction.HEATING
+        if active & {"Y1", "Y2"}:
+            if mode == DEV_COOL:
+                return HVACAction.COOLING
+            if mode in (DEV_HEAT, DEV_EMERGENCY_HEAT):
+                return HVACAction.HEATING
+            auto_state = self.data.get("dev", {}).get("auto_state")
+            if auto_state == AUTO_STATE_HEAT:
+                return HVACAction.HEATING
+            if auto_state == AUTO_STATE_COOL:
+                return HVACAction.COOLING
+            return HVACAction.HEATING if "O/B" in active else HVACAction.COOLING
+        if "G" in active:
             return HVACAction.FAN
         return HVACAction.IDLE
 

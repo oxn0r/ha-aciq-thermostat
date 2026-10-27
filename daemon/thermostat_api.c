@@ -129,11 +129,19 @@ struct thermostat_state {
     int v24_unit;           /* cpTempUnit: 1 = F, 0 = C, -1 unknown */
     float v24_room, v24_setpoint, v24_low, v24_high;
     int v24_current_mode;   /* set24VMode current_mode, -1 unknown */
+    int v24_power;          /* rac_dev_24v_kv_parse powerState, -1 unknown */
+    int v24_kv_mode;        /* kv_parse / set24VTemp mode (1 auto, 2 cool, 6 heat, 7 emergency), -1 unknown */
+    int v24_kv_emer;        /* kv_parse cpEmerHeat, -1 unknown */
+    int v24_taux;           /* kv_parse Taux, -1 unknown */
     char v24_op_mode[8], v24_heat_mode[8], v24_wind_fun[8], v24_terminal_set_mode[8];
     char v24_terminal_state[12], v24_terminal_state_a3[12], v24_terminal_config[12];
     char v24_emer_heat[8], v24_aux[8], v24_ob_dir[8], v24_afterheat[8];
     char v24_io[96];
     /* meiju UI values */
+    int ui_auto_state;      /* page_ui_refresh_background auto_state, -1 unknown */
+    int ui_fan_state;       /* page_ui_refresh_background fan_state, -1 unknown */
+    int heating_max;        /* meiju setpoint limits (24 V units allow 39-95 F), -1 unknown */
+    int cooling_min;
     float ui_heat_sp;
     float ui_cool_sp;
     float raw_temp;
@@ -142,7 +150,10 @@ struct thermostat_state {
 /* Last known state; survives log rotation (setpoint unit defaults to F until seen) */
 static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control = -1,
                                                 .deadband = -1, .temp_zone_mode = -1,
-                                                .v24_unit = -1, .v24_current_mode = -1};
+                                                .v24_unit = -1, .v24_current_mode = -1,
+                                                .v24_power = -1, .v24_kv_mode = -1, .v24_kv_emer = -1,
+                                                .v24_taux = -1, .ui_auto_state = -1, .ui_fan_state = -1,
+                                                .heating_max = -1, .cooling_min = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
 static char firmware_id[64] = "unknown";
@@ -217,6 +228,15 @@ static void parse_24v_line(const char *line, struct thermostat_state *state) {
         state->v24_io[n] = '\0';
     }
     if ((p = strstr(line, "current_mode=")) && sscanf(p, "current_mode=%d", &v) == 1) state->v24_current_mode = v;
+    /* rac_dev_24v_kv_parse: "rc24v_state.powerState =1 mode =6 cpEmerHeat =0", "rc24v_state.Aaux =1  Taux =3" */
+    if ((p = strstr(line, "powerState =")) && sscanf(p, "powerState =%d", &v) == 1) state->v24_power = v ? 1 : 0;
+    if (strstr(line, "rac_dev_24v_kv_parse") || strstr(line, "set24VTemp")) {
+        if ((p = strstr(line, " mode =")) && sscanf(p, " mode =%d", &v) == 1) state->v24_kv_mode = v;
+    }
+    if ((p = strstr(line, "cpEmerHeat =")) && sscanf(p, "cpEmerHeat =%d", &v) == 1) state->v24_kv_emer = v ? 1 : 0;
+    if ((p = strstr(line, "Taux =")) && sscanf(p, "Taux =%d", &v) == 1) state->v24_taux = v;
+    /* set24VTemp: "rc24v_state->Ts =72" */
+    if ((p = strstr(line, "rc24v_state->Ts =")) && sscanf(p, "rc24v_state->Ts =%f", &f) == 1) state->v24_setpoint = f;
 }
 
 static void parse_line(const char *line, struct thermostat_state *state) {
@@ -260,7 +280,8 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             }
         }
 
-        if (strstr(line, "dev_24v_decorder") || strstr(line, "set24VMode") || strstr(line, "set24VTemp"))
+        if (strstr(line, "dev_24v_decorder") || strstr(line, "set24VMode") || strstr(line, "set24VTemp") ||
+            strstr(line, "rac_dev_24v_kv_parse"))
             parse_24v_line(line, state);
 
         /* Parse 24V state: Tt:X Thigh:X Tlow:X Ts:X */
@@ -296,6 +317,10 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             if (p && sscanf(p, "compressor_state=%d", &val) == 1) {
                 state->compressor_state = val;
             }
+            p = strstr(line, "auto_state=");
+            if (p && sscanf(p, "auto_state=%d", &val) == 1) state->ui_auto_state = val;
+            p = strstr(line, "fan_state=");
+            if (p && sscanf(p, "fan_state=%d", &val) == 1) state->ui_fan_state = val;
             /* Note: Don't use coolTemperValue - use Ts from 24V state instead */
         }
 
@@ -350,6 +375,10 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             if (p && sscanf(p, "deadband:%d", &val) == 1 && val >= 0 && val < 20) state->deadband = val;
             p = strstr(line, "temp_zone_mode:");
             if (p && sscanf(p, "temp_zone_mode:%d", &val) == 1) state->temp_zone_mode = val ? 1 : 0;
+            p = strstr(line, "heating_max=");
+            if (p && sscanf(p, "heating_max=%d", &val) == 1) state->heating_max = val;
+            p = strstr(line, "cooling_min=");
+            if (p && sscanf(p, "cooling_min=%d", &val) == 1) state->cooling_min = val;
             /* comm_mode=0 communicating, 1 conventional 24 V (issue #5); dev_app lines win */
             p = strstr(line, "comm_mode=");
             if (p && sscanf(p, "comm_mode=%d", &val) == 1 && !state->have_dev_state && !state->v24_seen)
@@ -647,13 +676,14 @@ static long daemon_start_uptime = -1;
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
     char sig[512];
-    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
              hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
              st->zone_control, st->zone_lower, st->zone_upper,
              st->comm_mode, st->v24_setpoint, st->v24_low, st->v24_high, st->v24_current_mode,
              st->v24_op_mode, st->v24_heat_mode, st->v24_terminal_set_mode, st->v24_terminal_state,
              st->v24_terminal_state_a3, st->v24_io,
+             st->v24_power, st->v24_kv_mode, st->v24_kv_emer, st->ui_auto_state, st->ui_fan_state,
              eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
              eq->fault_state, eq->protect_state, control_enabled);
@@ -673,7 +703,7 @@ static void snapshot(struct thermostat_state *st, struct equipment *eq, char id[
 static int build_state_json_from(const struct thermostat_state *stp, const struct equipment *eq,
                                  const char *sid, char *buf, size_t bufsize) {
     const struct thermostat_state state = *stp;
-    char equip_json[512], v24_json[640];
+    char equip_json[512], v24_json[896];
     build_equipment_json(eq, equip_json, sizeof(equip_json));
     if (!state.v24_seen) {
         snprintf(v24_json, sizeof(v24_json), "{\"seen\": false}");
@@ -685,12 +715,14 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
             "\"high\": %.1f, \"current_mode\": %s, \"op_mode\": \"%s\", \"heat_mode\": \"%s\", "
             "\"wind_fun\": \"%s\", \"terminal_set_mode\": \"%s\", \"terminal_state\": \"%s\", "
             "\"terminal_state_a3\": \"%s\", \"terminal_config\": \"%s\", \"emer_heat\": \"%s\", "
-            "\"aux\": \"%s\", \"ob_dir\": \"%s\", \"afterheat\": \"%s\", \"terminal_io\": \"%s\"}",
+            "\"aux\": \"%s\", \"ob_dir\": \"%s\", \"afterheat\": \"%s\", \"terminal_io\": \"%s\", "
+            "\"power\": %d, \"kv_mode\": %d, \"kv_emer_heat\": %d, \"taux\": %d}",
             state.v24_unit == 0 ? "C" : state.v24_unit == 1 ? "F" : "unknown",
             state.v24_room, state.v24_setpoint, state.v24_low, state.v24_high, cm,
             state.v24_op_mode, state.v24_heat_mode, state.v24_wind_fun, state.v24_terminal_set_mode,
             state.v24_terminal_state, state.v24_terminal_state_a3, state.v24_terminal_config,
-            state.v24_emer_heat, state.v24_aux, state.v24_ob_dir, state.v24_afterheat, state.v24_io);
+            state.v24_emer_heat, state.v24_aux, state.v24_ob_dir, state.v24_afterheat, state.v24_io,
+            state.v24_power, state.v24_kv_mode, state.v24_kv_emer, state.v24_taux);
     }
     long up = read_uptime();
 
@@ -717,7 +749,8 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         "  \"daemon_uptime_s\": %ld,\n"
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
         "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_control\": %d, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
-        "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f, \"deadband\": %d, \"temp_zone_mode\": %d},\n"
+        "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f, \"deadband\": %d, \"temp_zone_mode\": %d, "
+        "\"auto_state\": %d, \"fan_state\": %d, \"heating_max\": %d, \"cooling_min\": %d},\n"
         "  \"comm_mode\": \"%s\",\n"
         "  \"v24\": %s,\n"
         "  \"equipment\": %s\n"
@@ -744,6 +777,7 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         state.zone_control, state.zone_lower, state.zone_upper,
         state.elec_heat, state.elec_heat_only, state.dev_wind,
         state.ui_heat_sp, state.ui_cool_sp, state.deadband, state.temp_zone_mode,
+        state.ui_auto_state, state.ui_fan_state, state.heating_max, state.cooling_min,
         state.comm_mode == 1 ? "communicating" : state.comm_mode == 2 ? "24v" : "unknown",
         v24_json,
         equip_json

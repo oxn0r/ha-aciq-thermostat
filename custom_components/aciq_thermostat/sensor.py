@@ -31,6 +31,7 @@ from .const import (
     FAN_MODES,
 )
 from .coordinator import AciqCoordinator
+from .binary_sensor import for_unit
 from .entity import AciqEntity
 
 PARALLEL_UPDATES = 0  # coordinator-based, read-only
@@ -46,6 +47,7 @@ def _eq(key: str) -> Callable[[dict[str, Any], dict[str, Any]], Any]:
 class AciqSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any], dict[str, Any]], Any]
     needs_equipment: bool = False
+    v24: bool | None = None   # True: 24 V units only; False: communicating only
     # value from the coordinator itself (versions, boot/daemon times) instead of the state
     coord_fn: Callable[[AciqCoordinator], Any] | None = None
 
@@ -98,7 +100,7 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
     AciqSensorDescription(key="mode", translation_key="mode", device_class=SensorDeviceClass.ENUM,
                           options=MODES,
                           value_fn=lambda d, eq: d.get("mode") if d.get("mode") in MODES else "unknown"),
-    AciqSensorDescription(key="fan_setting", translation_key="fan_setting",
+    AciqSensorDescription(key="fan_setting", translation_key="fan_setting", v24=False,
                           device_class=SensorDeviceClass.ENUM, options=[*FAN_MODES, "unknown"],
                           value_fn=lambda d, eq: d.get("fan") if d.get("fan") in FAN_MODES else "unknown"),
     # ---- equipment (dev_app memory) ----
@@ -164,6 +166,14 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=_deadband),
+    # ---- conventional 24 V (read-only) ----
+    AciqSensorDescription(key="outputs_24v", translation_key="outputs_24v", v24=True,
+                          value_fn=lambda d, eq: (", ".join((d.get("v24_outputs") or {}).get("active", []))
+                                                  or "none") if (d.get("v24_outputs") or {}).get("known")
+                          else None),
+    AciqSensorDescription(key="wiring_24v", translation_key="wiring_24v", v24=True,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: ", ".join((d.get("v24_outputs") or {}).get("wired", [])) or None),
     AciqSensorDescription(key="clock_offset", translation_key="clock_offset",
                           device_class=SensorDeviceClass.DURATION,
                           native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -186,7 +196,9 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities(AciqSensor(entry.runtime_data, desc) for desc in SENSORS)
+    c = entry.runtime_data
+    is_24v = (c.data or {}).get("read_only") == "24v"
+    async_add_entities(AciqSensor(c, desc) for desc in SENSORS if for_unit(desc, is_24v))
 
 
 class AciqSensor(AciqEntity, SensorEntity):
@@ -220,6 +232,20 @@ class AciqSensor(AciqEntity, SensorEntity):
         key = self.entity_description.key
         if key == "indoor_unit_firmware":
             return self.coordinator.versions or None
+        if key in ("outputs_24v", "wiring_24v"):
+            v = self.data.get("v24") or {}
+            out = self.data.get("v24_outputs") or {}
+            if key == "outputs_24v":
+                return {"raw_terminal_config": out.get("raw_config"), "powered": out.get("powered"),
+                        "afterheat": v.get("afterheat"), "auto_state": self.data.get("ui", {}).get("auto_state"),
+                        "fan_state": self.data.get("ui", {}).get("fan_state")}
+            ui = self.data.get("ui") or {}
+            return {"raw_terminal_state": out.get("raw_wiring"), "terminal_io": v.get("terminal_io"),
+                    "op_mode": v.get("op_mode"), "heat_mode": v.get("heat_mode"), "wind_fun": v.get("wind_fun"),
+                    "ob_dir": v.get("ob_dir"), "aux": v.get("aux"), "taux": v.get("taux"),
+                    "terminal_set_mode": v.get("terminal_set_mode"), "set24v_mode": v.get("current_mode"),
+                    "kv_mode": v.get("kv_mode"), "heating_max": ui.get("heating_max"),
+                    "cooling_min": ui.get("cooling_min")}
         if key == "clock_offset":
             c = self.coordinator.clock
             if not c:

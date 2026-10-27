@@ -315,7 +315,45 @@ def _t_meiju_comm_mode_only(d: Daemon) -> None:
     assert s["comm_mode"] == "24v" and s["v24"] == {"seen": False}, s
 
 
-V24_TESTS = [(_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
+# Real lines from the issue #5 capture (2026-10-27): wall set to Heat, then setpoint 72
+HEAT_24V = ("{ts} user.info dev_app: set24VMode] <I>(dev_app/src/dev_control.c:<501>)rac: "
+            "rc24v_state->last_mode=8,rc24v_state->current_mode=4\n"
+            "{ts} user.info dev_app: set24VTemp] <I>(dev_app/src/dev_control.c:<638>)rac: rc24v_state mode =6 "
+            "tempSet=72.000000\n"
+            "{ts} user.info dev_app: set24VTemp] <I>(dev_app/src/dev_control.c:<641>)rac: rc24v_state->Ts =72\n"
+            "{ts} user.info dev_app: rac_dev_24v_kv_parse] <I>(dev_app/src/dev_control.c:<1579>)rac: "
+            "rc24v_state.powerState =1 mode =6 cpEmerHeat =0\n"
+            "{ts} user.info dev_app: rac_dev_24v_kv_parse] <I>(dev_app/src/dev_control.c:<1580>)rac: "
+            "rc24v_state.Aaux =1  Taux =3\n"
+            "{ts} user.debug meiju: page_ui_refresh_background] mode=1, auto_state=0, fan_state=1, sensor_temp=7200, "
+            "heatTemperValue=72, coolTemperValue=0, compressor_state=0\n"
+            "{ts} user.info dev_app: process_24v_cmd_a3] <I>(dev_app/src/dev_24v_decorder.c:<597>)rac: "
+            "rc24v_state.terminal_check_state=0 terminal_state=1f6 terminal_config=266 cpEmerHeat=0 Aaux=1 OB_dir=2\n")
+OFF_24V = ("{ts} user.info dev_app: rac_dev_24v_kv_parse] <I>(dev_app/src/dev_control.c:<1579>)rac: "
+           "rc24v_state.powerState =0 mode =6 cpEmerHeat =0\n"
+           "{ts} user.debug meiju: page_ui_refresh_background] mode=4, auto_state=0, fan_state=0, sensor_temp=7300, "
+           "heatTemperValue=0, coolTemperValue=0, compressor_state=0\n"
+           "{ts} user.info dev_app: process_24v_cmd_a3] <I>(dev_app/src/dev_24v_decorder.c:<597>)rac: "
+           "rc24v_state.terminal_check_state=0 terminal_state=1f6 terminal_config=0 cpEmerHeat=0 Aaux=1 OB_dir=2\n")
+
+
+def _t_24v_heat_and_off(d: Daemon) -> None:
+    d.append(HEAT_24V.format(ts=ts()) + UI.format(ts=ts(), db=4, zm=1)
+             .replace("heating_max=86", "heating_max=95").replace("cooling_min=60", "cooling_min=39"))
+    s = d.get("/api/state")
+    v, ui = s["v24"], s["ui"]
+    assert (v["power"], v["kv_mode"], v["kv_emer_heat"], v["taux"], v["current_mode"]) == (1, 6, 0, 3, 4), v
+    assert v["setpoint"] == 72 and v["terminal_config"] == "266", v
+    assert s["ui_mode_raw"] == 1 and (ui["auto_state"], ui["fan_state"]) == (0, 1), s
+    assert (ui["heating_max"], ui["cooling_min"]) == (95, 39), ui
+    sid = s["state_id"]
+    threading.Timer(0.5, d.append, [OFF_24V.format(ts=ts())]).start()   # Off at the wall wakes long-polls
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["v24"]["power"] == 0 and s["v24"]["terminal_config"] == "0" and s["ui_mode_raw"] == 4, s
+    assert dt < 3.5, dt
+
+
+V24_TESTS = [(_t_24v_heat_and_off, lambda: v24()), (_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
              (_t_meiju_comm_mode_only, lambda: UI.format(ts=ts(), db=4, zm=1).replace("comm_mode=0", "comm_mode=1"))]
 
 

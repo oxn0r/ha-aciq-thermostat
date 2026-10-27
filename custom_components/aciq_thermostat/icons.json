@@ -102,6 +102,12 @@
       },
       "deadband": {
         "default": "mdi:arrow-collapse-horizontal"
+      },
+      "outputs_24v": {
+        "default": "mdi:electric-switch"
+      },
+      "wiring_24v": {
+        "default": "mdi:connection"
       }
     },
     "binary_sensor": {
@@ -140,6 +146,21 @@
         "state": {
           "off": "mdi:shield-off"
         }
+      },
+      "compressor_call": {
+        "default": "mdi:heat-pump-outline"
+      },
+      "compressor_stage_2": {
+        "default": "mdi:numeric-2-box-outline"
+      },
+      "aux_heat_call": {
+        "default": "mdi:water-boiler"
+      },
+      "fan_call": {
+        "default": "mdi:fan"
+      },
+      "reversing_valve": {
+        "default": "mdi:swap-horizontal"
       }
     },
     "button": {

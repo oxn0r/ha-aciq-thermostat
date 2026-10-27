@@ -1,15 +1,19 @@
 # Changelog
 
-## Unreleased: 24 V groundwork (branch `24v-groundwork`)
+## 1.1.0b2 — 2026-10-27 (pre-release)
+Includes 1.1.0b1 (Auto heat/cool range, #7).
 ### Added
-- **Conventional 24 V thermostats are detected** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)).
-  Instead of retrying setup with "has not seen the thermostat's state yet", a Repairs issue explains that 24 V mode
-  isn't supported yet and shows what the thermostat reports; the raw 24 V state is logged once (and again when it
-  changes) for that issue. Pre-flight names 24 V mode too.
-- Daemon: `comm_mode` (communicating / 24v / unknown) and a read-only `v24` block parsed from `dev_24v_decorder`
-  lines: unit, room temperature, setpoint, Auto low/high, and the raw `op_mode`, `heat_mode`, terminal states and
-  terminal I/O, kept unmapped until captures show what they mean. Changes wake long-polls (room temperature excluded).
-  Nothing is controlled in 24 V mode.
+- **Conventional 24 V thermostats, read-only** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)), mapped
+  from a supervised capture on a Carrier TL04-1. The climate entity shows mode (Off / Auto / Heat / Cool, Aux as
+  Heat + *Emergency heat*), setpoint or Auto range, room temperature, and an action from the outputs the thermostat
+  drives. New entities: *24 V outputs*, *Compressor call*, *Compressor stage 2 call*, *Aux heat call*, *Fan call*,
+  *Reversing valve (O/B)* and *24 V wiring*. Equipment entities that need the communicating bus aren't created on
+  24 V units. **Control is disabled**: every command returns an error, and a Repairs note links the
+  [test plan](docs/24V-TEST-PLAN.md).
+- 24 V state changes are logged at info level and the last 60 are in the diagnostics download (`v24_events`).
+- Daemon: `comm_mode` and a raw `v24` block (setpoints, Auto pair, `kv_parse` power/mode/emergency heat, `set24VMode`,
+  terminal wiring and outputs), plus the UI's `auto_state`, `fan_state` and setpoint limits. A 24 V unit with no 24 V
+  state lines yet still gets a clear Repairs issue instead of a vague retry. Pre-flight names 24 V mode.
 
 ## 1.1.0b1 — 2026-10-26 (pre-release)
 ### Added

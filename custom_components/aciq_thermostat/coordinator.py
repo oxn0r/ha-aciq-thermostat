@@ -47,6 +47,7 @@ from .const import (
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
     ISSUE_24V,
+    ISSUE_24V_READ_ONLY,
     ISSUE_DEPLOY,
     ISSUE_FIRMWARE,
     LONG_POLL_MAX_BACKOFF,
@@ -57,6 +58,7 @@ from .const import (
     VERIFIED_FIRMWARE,
 )
 from .deployer import Deployer, DeployError
+from .v24 import normalize, signature
 
 _LOGGER = logging.getLogger(__name__)
 _V24_LOGGED: dict[str, str] = {}   # host -> last 24 V summary logged
@@ -142,6 +144,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.outage: Outage | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=20)   # outages + deploys, for diagnostics
         self.commands: deque[dict[str, Any]] = deque(maxlen=10)  # control commands + results, for diagnostics
+        self.v24_events: deque[dict[str, Any]] = deque(maxlen=60)  # 24 V state changes, for diagnostics
+        self._v24_last: dict[str, Any] | None = None
         self.long_poll_supported: bool | None = None
         self.boot_time: datetime | None = None
         self.daemon_start_time: datetime | None = None
@@ -380,7 +384,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ) as resp:
                         if resp.status != 200:
                             raise HttpStatusError(resp.status)
-                        data: dict[str, Any] = await resp.json(content_type=None)
+                        data: dict[str, Any] = normalize(await resp.json(content_type=None))
             except HttpStatusError as err:
                 if err.status == 404:
                     self._long_poll_unsupported()
@@ -424,7 +428,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             async with self.session.get(self.base + API_STATE) as resp:
                 if resp.status != 200:
                     raise HttpStatusError(resp.status)
-                data: dict[str, Any] = await resp.json(content_type=None)
+                data: dict[str, Any] = normalize(await resp.json(content_type=None))
                 return data
 
     async def _tcp(self, port: int) -> str:
@@ -471,6 +475,15 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="no_state_yet")
         ir.async_delete_issue(self.hass, DOMAIN, issue_24v)
         self._track_times(data)
+        ro_issue = f"{ISSUE_24V_READ_ONLY}_{self.config_entry.entry_id}"
+        if data.get("read_only"):
+            ir.async_create_issue(
+                self.hass, DOMAIN, ro_issue, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_24V_READ_ONLY,
+                learn_more_url="https://github.com/oxn0r/ha-aciq-thermostat/issues/5",
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, ro_issue)
 
         issue_id = f"{ISSUE_FIRMWARE}_{self.config_entry.entry_id}"
         if data.get("control_enabled") is False:
@@ -542,8 +555,27 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                      self.outage.kind)
         self.outage = None
 
+    def _track_v24(self, data: dict[str, Any]) -> None:
+        """24 V (read-only) units: log each change of mode/setpoints/outputs and keep the last
+        60 for diagnostics. That timeline is what's needed to confirm the mapping."""
+        if data.get("read_only") != "24v":
+            return
+        sig = signature(data)
+        last, self._v24_last = self._v24_last, sig
+        if last is None:
+            _LOGGER.info("Thermostat on %s is in conventional 24 V mode: read-only. State: %s", self.host, sig)
+            self.v24_events.append({"time": dt_util.utcnow().isoformat(timespec="seconds"), "initial": sig})
+            return
+        changes = {k: [last.get(k), v] for k, v in sig.items() if last.get(k) != v}
+        if changes:
+            self.v24_events.append({"time": dt_util.utcnow().isoformat(timespec="seconds"),
+                                    "changes": changes, "room": data.get("current_temp")})
+            _LOGGER.info("24 V state on %s changed: %s (room %s)", self.host,
+                         ", ".join(f"{k} {a} -> {b}" for k, (a, b) in changes.items()), data.get("current_temp"))
+
     def _track_times(self, data: dict[str, Any]) -> None:
         """Boot and daemon start times from uptimes; only move on real changes (>2 min)."""
+        self._track_v24(data)
         now = dt_util.utcnow()
         for attr, key in (("boot_time", "uptime_s"), ("daemon_start_time", "daemon_uptime_s")):
             secs = data.get(key)
@@ -568,6 +600,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                               "payload": payload, "result": result, **fields})
 
     async def async_control(self, payload: dict[str, Any]) -> None:
+        if (self.data or {}).get("read_only"):
+            self._command(payload, "blocked_read_only")
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="read_only_24v")
         try:
             async with asyncio.timeout(10):
                 async with self.session.post(self.base + API_CONTROL, json=payload) as resp:

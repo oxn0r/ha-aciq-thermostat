@@ -85,6 +85,10 @@
     "conventional_24v": {
       "title": "Thermostat runs in conventional 24 V mode (not supported yet)",
       "description": "This thermostat drives its equipment over conventional 24 V wiring instead of the communicating bus, and the integration can't read its mode or control it yet. Support is being worked on in issue #5. The thermostat reports: {summary}. Please add your diagnostics or Home Assistant log to that issue."
+    },
+    "read_only_24v": {
+      "title": "24 V thermostat: read-only test build",
+      "description": "This thermostat runs in conventional 24 V mode. This test build shows its mode, setpoints, room temperature and the 24 V outputs it drives, but control is disabled until the mapping is confirmed. Changes are logged and kept in the diagnostics download; please follow the test plan in issue #5 and attach the diagnostics there."
     }
   },
   "entity": {
@@ -197,6 +201,12 @@
       },
       "deadband": {
         "name": "Deadband"
+      },
+      "outputs_24v": {
+        "name": "24 V outputs"
+      },
+      "wiring_24v": {
+        "name": "24 V wiring"
       }
     },
     "binary_sensor": {
@@ -227,6 +237,21 @@
       },
       "control_enabled": {
         "name": "Local control enabled"
+      },
+      "compressor_call": {
+        "name": "Compressor call"
+      },
+      "compressor_stage_2": {
+        "name": "Compressor stage 2 call"
+      },
+      "aux_heat_call": {
+        "name": "Aux heat call"
+      },
+      "fan_call": {
+        "name": "Fan call"
+      },
+      "reversing_valve": {
+        "name": "Reversing valve (O/B)"
       }
     },
     "button": {
@@ -282,6 +307,9 @@
     },
     "mode_24v": {
       "message": "The thermostat runs in conventional 24 V mode, which isn't supported yet (see the repair issue)"
+    },
+    "read_only_24v": {
+      "message": "Control is disabled: this thermostat runs in conventional 24 V mode, which is read-only in this build (see issue #5)"
     }
   }
 }
