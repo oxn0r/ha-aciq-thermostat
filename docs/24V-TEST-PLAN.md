@@ -48,12 +48,10 @@ that the card's action says heating / cooling / fan / idle at the right times.
 - Switch the thermostat to °C once and back.
 
 **D. After the first runs (v1.1.0b3)**
-1. **Cool call voltage:** during a cool call (outputs `G, Y2, Y1`), measure AC volts at the thermostat's base between
-   **Y1 and C** and between **G and C** (about 24 V expected). Only if you're comfortable; your HVAC tech can do it.
-   This tells us whether the thermostat is really powering the outputs it reports when the equipment doesn't run.
-2. Repeat **B2 (cooling)** once the equipment is checked or on a warm day.
-3. Do **part C**.
-4. **App capture for control:** with the integration entry disabled, capture the log as before while changing, from
+1. Repeat **B2 (cooling)** once the equipment is checked or on a warm day. If an HVAC tech is out anyway, ask them
+   whether the air handler gets the cool call (Y, G) from the thermostat while it's calling.
+2. Do **part C**.
+3. **App capture for control:** with the integration entry disabled, capture the log as before while changing, from
    the **phone app** (not the screen): the setpoint in Heat and in Cool, the Auto low and high, then each mode
    (Off, Heat, Cool, Auto, Fan, Aux/Emergency heat), about 30 s apart, noting the time of each.
 
@@ -71,8 +69,8 @@ that the card's action says heating / cooling / fan / idle at the right times.
 | Y1 → Y2 → W1 staging timing (how *Compressor stage 2* and *Aux heat call* behave) | B1, B4 |
 | O/B direction with this wiring (`OB_dir=2`: on in heat) | B1 vs B2 |
 | What `op_mode`, `heat_mode`, `wind_fun` and the fan setting mean | B5, and whether they ever change |
-| Does a cool call energize Y1/G when the equipment doesn't run? | D1 |
-| The exact commands the app sends for setpoints and modes | D4 |
+| Does the thermostat really power a cool call (Y, G)? | D1 |
+| The exact commands the app sends for setpoints and modes | D3 |
 
 Control will then be added one function at a time (setpoint first, then Heat / Cool / Off), each tested with you
 watching, using the thermostat's own 24 V commands (`set24VTemp`, `set24VMode`).
