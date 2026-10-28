@@ -74,7 +74,7 @@ Want the details? Everything below explains how it works, what's verified, and h
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
 | Same thermostat on build `tina.tangly.20260821.063106` | **Read-only** in 1.1.0b4 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): mode, setpoints, temperature, humidity, compressor; no equipment data, control blocked until verified |
-| Same thermostat on another firmware build | Not set up by default (pre-flight fails); open an issue with the pre-flight output |
+| Same thermostat on another firmware build | New setups stop at pre-flight (open an issue with its output); a thermostat that updates itself after setup keeps readings, with control blocked (see [Safety](#safety)) |
 | TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Read-only** since 1.1.0b2 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5), [test plan](docs/24V-TEST-PLAN.md)): mode, setpoints, room temperature and 24 V outputs. 1.1.0b4: setpoint and Auto range control as an opt-in test; modes stay read-only |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |
 
