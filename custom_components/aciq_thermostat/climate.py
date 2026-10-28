@@ -139,7 +139,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_EMERGENCY_HEAT):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if self._dev_mode in FAN_ADJUSTABLE_MODES and not self.data.get("read_only"):
+        if self._dev_mode in FAN_ADJUSTABLE_MODES and self.data.get("wiring") != "24v":
             f |= ClimateEntityFeature.FAN_MODE
         return f
 
@@ -216,7 +216,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
         mode = self._dev_mode
         if mode == DEV_OFF:
             return HVACAction.OFF
-        if self.data.get("read_only") == "24v":
+        if self.data.get("wiring") == "24v":
             return self._v24_action(mode)
         eq = self.equipment
         if eq.get("furnace_on"):

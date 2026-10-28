@@ -25,8 +25,9 @@ from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeout
 from .const import (
     DAEMON_DEVICE_PATH,
     DAEMON_FILENAME,
-    LOG_EXCLUDE,
     LOG_PATTERN,
+    LOG_READ_LINES,
+    LOG_STATE_SOURCES,
     READ_ONLY_FIRMWARE,
     VERIFIED_DEV_APP_SHA256,
     VERIFIED_FIRMWARE,
@@ -120,6 +121,34 @@ def bundled_daemon_sha256() -> str:
     return hashlib.sha256(DAEMON_LOCAL_PATH.read_bytes()).hexdigest()
 
 
+_LOG_TIME = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+ ")
+# values that change without the state changing: room temperature, Wi-Fi signal
+_LOG_VOLATILE = re.compile(r"(\bTt[:=]|sensor_temp=|wifi_rssi:)\s*-?[\d.]+")
+_LOG_LOCATION = re.compile(r"\([^()]*:<\d+>\)")   # dev_app's "(file.c:<line>)"
+
+
+def compact_log(lines: list[str], limit: int) -> list[str]:
+    """Keep command lines, and state lines only when they differ from the last line from the
+    same source (log line location), ignoring the timestamp and room temperature / RSSI.
+    Returns the last `limit` lines kept."""
+    last: dict[str, str] = {}
+    kept: list[str] = []
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if any(src in line for src in LOG_STATE_SOURCES):
+            body = _LOG_TIME.sub("", line)
+            loc = _LOG_LOCATION.search(body)
+            source = body.split("]", 1)[0] + (loc.group(0) if loc else "")
+            value = _LOG_VOLATILE.sub(r"\1", body)
+            if last.get(source) == value:
+                continue
+            last[source] = value
+        kept.append(line)
+    return kept[-limit:] if limit > 0 else []
+
+
 class Deployer:
     """One short-lived ADB session per operation (adbd here is single-client friendly)."""
 
@@ -197,11 +226,11 @@ class Deployer:
                     v24 = await self._sh(dev, "cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null | grep -c dev_24v_decorder")
                 v24_n = int(v24) if v24.isdigit() else 0
                 if v24_n:
-                    detail = f"conventional 24 V mode ({v24_n} 24 V state lines, no AHU3 lines): not supported yet"
+                    detail = f"conventional 24 V mode ({v24_n} 24 V state lines, no AHU3 lines)"
                 else:
                     detail = (f"{ahu_n} AHU3 state lines in log"
                               + ("" if ahu_n else " (may appear after the next state change)"))
-                res.checks.append(Check("communicating_mode", ahu_n > 0, detail, fatal=False))
+                res.checks.append(Check("communicating_mode", ahu_n > 0 or v24_n > 0, detail, fatal=False))
 
                 port = await self._sh(dev, f"netstat -ltn 2>/dev/null | grep -c ':{self.api_port} '")
                 listener, _ = _parse_procs(await self._sh(dev, _procs_cmd(self.api_port)))
@@ -460,10 +489,11 @@ class Deployer:
             dev = await self._session()
             try:
                 out = await self._sh(dev, f"cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null"
-                                          f" | grep -E '{LOG_PATTERN}' | grep -v '{LOG_EXCLUDE}' | tail -n {int(lines)}", timeout=20)
+                                          f" | grep -E '{LOG_PATTERN}' | tail -n {LOG_READ_LINES}", timeout=30)
             finally:
                 await dev.close()
-        return [ln.rstrip() for ln in out.splitlines() if ln.strip()]
+        # up to ~1 MB of text: filter off the event loop
+        return await asyncio.get_running_loop().run_in_executor(None, compact_log, out.splitlines(), lines)
 
     async def read_versions(self) -> dict[str, str]:
         """Version strings shown in the ACiQ app (read-only)."""

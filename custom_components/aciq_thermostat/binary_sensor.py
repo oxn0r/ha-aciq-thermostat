@@ -72,8 +72,8 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
                           value_fn=lambda d, eq: bool(d.get("dev", {}).get("power"))),
     AciqBinaryDescription(key="control_enabled", translation_key="control_enabled",
                           entity_category=EntityCategory.DIAGNOSTIC,
-                          value_fn=lambda d, eq: bool(d.get("control_enabled")) and not d.get("read_only")),
-    # ---- conventional 24 V: outputs the thermostat drives (terminal_config), read-only ----
+                          value_fn=lambda d, eq: bool(d.get("control_enabled"))),
+    # ---- conventional 24 V: outputs the thermostat drives (terminal_config) ----
     AciqBinaryDescription(key="compressor_call", translation_key="compressor_call", v24=True,
                           device_class=BinarySensorDeviceClass.RUNNING,
                           value_fn=lambda d, eq: _out(d, "Y1", "Y2")),
@@ -96,7 +96,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     c = entry.runtime_data
-    is_24v = (c.data or {}).get("read_only") == "24v"
+    is_24v = (c.data or {}).get("wiring") == "24v"
     async_add_entities(AciqBinarySensor(c, desc) for desc in BINARY if for_unit(desc, is_24v))
 
 

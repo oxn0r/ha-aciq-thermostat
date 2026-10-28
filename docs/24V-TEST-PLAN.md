@@ -1,14 +1,14 @@
 # 24 V test plan (issue #5)
 
-This build shows a conventionally wired (24 V) TL04-1 in Home Assistant: mode, setpoint or Auto range, room
-temperature, what the thermostat is calling for, and its wiring. By default it sends **nothing** to the thermostat.
-Control (mode, setpoint, Auto range) is an opt-in test (parts E and F).
+The tests used to bring conventionally wired (24 V) TL04-1 support to 1.1.0. Since 1.1.0, 24 V units are detected
+automatically and controlled like communicating ones (mode, setpoint, Auto range; no fan speed), with no option to
+turn on. Parts A–F passed on the reporter's unit except a cooling run on real equipment (B2/D1). Kept as a reference
+for testing other 24 V setups.
 
 ## Install
-1. Install **v1.1.0b5** (or newer): in HACS enable *Show beta versions* for this repository and update, or copy
+1. Install **v1.1.0** (or newer): in HACS enable *Show beta versions* for this repository and update, or copy
    `custom_components/aciq_thermostat` from the release zip into `/config/custom_components/`.
 2. Restart Home Assistant. The daemon on the thermostat updates itself.
-3. You should see a Repairs note, *24 V thermostat: test build*. That's expected.
 4. Optional, for more detail: in the integration's menu, choose **Enable debug logging**.
 
 ## What you'll see
@@ -55,8 +55,8 @@ that the card's action says heating / cooling / fan / idle at the right times.
    the **phone app** (not the screen): the setpoint in Heat and in Cool, the Auto low and high, then each mode
    (Off, Heat, Cool, Auto, Fan, Aux/Emergency heat), about 30 s apart, noting the time of each.
 
-**E. Setpoint control (v1.1.0b4, opt-in; passed 2026-10-28)**
-1. In the integration's options (⚙ *Configure*), turn on **24 V thermostats: allow control (test)**.
+**E. Setpoint control (v1.1.0b4; passed 2026-10-28)**
+1. (b4/b5 only: this needed the *allow control (test)* option, removed in 1.1.0.)
 2. In **Heat**, change the setpoint from Home Assistant by 1–2° up, then back. Check the thermostat screen follows
    within a few seconds.
 3. Same in **Cool**.
@@ -65,8 +65,8 @@ that the card's action says heating / cooling / fan / idle at the right times.
    (`applied` / `not_applied`), and `recent_log` has the thermostat's own lines for it (`parse_tlv_24v_cmd`,
    `set24VTemp`, `Thigh` / `Tlow`). No ADB capture is needed for this.
 
-**F. Mode control (v1.1.0b5, opt-in)**
-Same option as part E. Fan speed can't be set on 24 V (single fan output). Make every change from **Home Assistant**,
+**F. Mode control (v1.1.0b5; passed 2026-10-28)**
+ Fan speed can't be set on 24 V (single fan output). Make every change from **Home Assistant**,
 about 30 s apart, and check the thermostat screen follows within a few seconds:
 1. Heat → Cool → Auto → Fan only → Off.
 2. Turn on from Off (it returns to the last mode).
@@ -92,6 +92,6 @@ about 30 s apart, and check the thermostat screen follows within a few seconds:
 | Does the thermostat really power a cool call (Y, G)? | D1 |
 | The exact commands the app sends for setpoints and modes | D3 (done: same keys as on communicating units) |
 | Do Home Assistant's setpoint commands land like the app's? | E (yes) |
-| Do Home Assistant's mode commands land like the app's? | F |
+| Do Home Assistant's mode commands land like the app's? | F (yes) |
 
-Once F checks out, 24 V control goes into a regular release (opt-in until cooling has been seen running).
+Both passed, so 24 V control is on by default since 1.1.0.

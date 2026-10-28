@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from custom_components.aciq_thermostat.deployer import Deployer, DeployError
+from custom_components.aciq_thermostat.deployer import Deployer, DeployError, compact_log
 
-from custom_components.aciq_thermostat.const import READ_ONLY_FIRMWARE, VERIFIED_DEV_APP_SHA256
+from custom_components.aciq_thermostat.const import LOG_READ_LINES, READ_ONLY_FIRMWARE, VERIFIED_DEV_APP_SHA256
 
 from .fake_adb import BUNDLED_SHA, FakeThermostat
 
@@ -50,15 +50,40 @@ async def test_recent_log(thermo: FakeThermostat) -> None:
     thermo.log_lines = ["a RAC_DEV_AHU3_STATE, power: 1", "b set24VTemp] Ts =72"]
     assert await Deployer("h", 5555).recent_log(10) == thermo.log_lines
     cmd = thermo.commands[-1] if thermo.commands else ""
-    assert not cmd or ("/tmp/.lastlog.old /tmp/.lastlog" in cmd and "tail -n 10" in cmd
-                       and "grep -v 'cpTempUnit:'" in cmd)
+    assert not cmd or ("/tmp/.lastlog.old /tmp/.lastlog" in cmd and f"tail -n {LOG_READ_LINES}" in cmd)
+
+
+A3 = ("2026-10-28 10:02:{s:02d}.896 user.info dev_app: process_24v_cmd_a3] <I>(dev_app/src/dev_24v_decorder.c:<596>)"
+      "rac: cpTempUnit:1 Tt:{tt} Thigh:{hi} Tlow:67 Ts:74")
+IO = ("2026-10-28 10:02:{s:02d}.900 user.info dev_app: process_24v_cmd_a3] <I>(dev_app/src/dev_24v_decorder.c:<637>)"
+      "rac: 24V terminal io: PEK:0 O/B:1 G:1")
+UI = ("2026-10-28 10:02:{s:02d}.437 user.debug meiju: page_ui_refresh_background] mode={m}, auto_state=0, "
+      "sensor_temp={t}, heatTemperValue=72")
+RSSI = "2026-10-28 10:02:{s:02d}.166 user.info meiju: thermostat_ui_dev_state_response] wifi_rssi:{r}, deadband:4"
+CMD = ("2026-10-28 10:02:{s:02d}.538 user.info dev_app: parse_tlv_24v_cmd] <I>(dev_app/src/dev_msmart_protocol.c:<715>)"
+       "rac: send_cmd_flag =1")
+
+
+def test_compact_log_keeps_changes_and_commands() -> None:
+    lines = [A3.format(s=0, tt="73.12", hi=71), IO.format(s=0), UI.format(s=0, m=1, t=7300), RSSI.format(s=0, r=40),
+             A3.format(s=1, tt="73.18", hi=71), IO.format(s=1), UI.format(s=1, m=1, t=7400), RSSI.format(s=1, r=44),
+             CMD.format(s=2), CMD.format(s=2),                                # commands: always kept
+             A3.format(s=3, tt="73.10", hi=74),                               # Thigh changed
+             UI.format(s=3, m=2, t=7400),                                     # mode changed
+             A3.format(s=4, tt="73.11", hi=74), IO.format(s=4), "", "   "]
+    kept = compact_log(lines, 100)
+    assert kept == [lines[0], lines[1], lines[2], lines[3], lines[8], lines[9], lines[10], lines[11]]
+    assert compact_log(lines, 2) == kept[-2:] and compact_log(lines, 0) == []
+    # a state that returns to an earlier value is a change again
+    back = [UI.format(s=0, m=1, t=1), UI.format(s=1, m=2, t=1), UI.format(s=2, m=1, t=1)]
+    assert compact_log(back, 10) == back
 
 
 async def test_preflight_reports_24v_mode(thermo: FakeThermostat) -> None:
     thermo.ahu3_lines, thermo.v24_lines = 0, 412
     res = await Deployer("h", 5555).preflight()
     assert res.passed                                       # not fatal: setup explains it in Repairs
-    assert "⚠️ communicating_mode: conventional 24 V mode (412 24 V state lines" in res.summary()
+    assert "✅ communicating_mode: conventional 24 V mode (412 24 V state lines" in res.summary()
 
 
 async def test_connect_retry_then_ok(thermo: FakeThermostat) -> None:

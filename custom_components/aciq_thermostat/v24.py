@@ -1,4 +1,4 @@
-"""Conventional 24 V thermostats (issue #5): read-only view of the daemon's raw v24 block.
+"""Conventional 24 V thermostats (issue #5): state from the daemon's raw v24 block.
 
 Mapped from a supervised capture on a Carrier TL04-1 (2026-10-27):
 - meiju UI mode: 0 auto, 1 heat, 2 cool, 3 aux/emergency heat, 4 off (dev_app powerState=0), 5 fan only
@@ -13,7 +13,7 @@ Confirmed with 10-minute equipment runs (issue #5, v1.1.0b2): terminal_config tr
 compressor delays; Y2 follows the setpoint gap, not a timer; in Heat with Aaux=1 the thermostat swaps
 Y1/Y2 for W1 after ~10 min and keeps O/B, while emergency heat drops O/B. Not yet confirmed: that a
 cool call (G+Y without O/B) energizes the terminals (the reporter's equipment didn't run).
-Nothing here sends commands.
+Control (1.1.0) uses the same commands as on communicating units; nothing here sends them.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ TERMINALS = ("PEK", "O/B", "G", "W2", "W1", "Y2", "Y1", "C", "RC", "RH")
 POWER_BIT = 0x200
 CALL_TERMINALS = ("Y1", "Y2", "W1", "W2", "G", "O/B")   # outputs that call equipment
 UI_MODES = {0: "auto", 1: "heat", 2: "cool", 3: "emergency_heat", 4: "off", 5: "fan_only"}
-READ_ONLY_24V = "24v"
+WIRING_24V = "24v"
 
 
 def _hex(raw: Any) -> int | None:
@@ -62,7 +62,7 @@ def _num(v: Any) -> float | None:
 
 
 def normalize(data: dict[str, Any]) -> dict[str, Any]:
-    """Fill the communicating-mode fields entities use from the 24 V block (read-only).
+    """Fill the communicating-mode fields entities use from the 24 V block.
 
     Communicating thermostats, and 24 V ones before any 24 V state line was seen, are
     returned unchanged.
@@ -86,7 +86,7 @@ def normalize(data: dict[str, Any]) -> dict[str, Any]:
         fan="unknown",
         compressor_running=bool({"Y1", "Y2"} & set(out["active"])),
         equipment={"available": False},
-        read_only=READ_ONLY_24V,
+        wiring=WIRING_24V,
         v24_outputs=out,
     )
     dev = dict(data.get("dev") or {})

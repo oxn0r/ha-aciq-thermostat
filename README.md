@@ -73,9 +73,9 @@ Want the details? Everything below explains how it works, what's verified, and h
 | Device | Status |
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
-| Same thermostat on build `tina.tangly.20260821.063106` | **Read-only** in 1.1.0b4 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): mode, setpoints, temperature, humidity, compressor; no equipment data, control blocked until verified |
+| Same thermostat on build `tina.tangly.20260821.063106` | **Read-only** ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): mode, setpoints, temperature, humidity, compressor; no equipment data, control blocked until verified |
 | Same thermostat on another firmware build | New setups stop at pre-flight (open an issue with its output); a thermostat that updates itself after setup keeps readings, with control blocked (see [Safety](#safety)) |
-| TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Read-only** since 1.1.0b2 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5), [test plan](docs/24V-TEST-PLAN.md)): mode, setpoints, room temperature and 24 V outputs. Opt-in control test: setpoint and Auto range (1.1.0b4, confirmed), modes (1.1.0b5); no fan speed |
+| TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Supported** since 1.1.0 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): mode (Off, Heat, Cool, Auto, Fan only, Emergency heat), setpoint, Auto low/high, room temperature and the 24 V outputs it drives. No fan speed (single fan output) and no equipment data. Tested on a heat pump with hydronic aux heat; other 24 V setups, please report |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |
 
 Verified hardware: TL04-1 hardware V4.3, screen firmware LD:1.2.60, indoor unit firmware
@@ -226,8 +226,11 @@ runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays
 
 ## Known limitations
 - Setpoints are whole degrees: 60–86 °F, or 16–30 °C when the thermostat is set to Celsius (both supported; the integration follows the thermostat's unit).
-- **Auto heat/cool range** support is new (1.1.0 beta): verified from a user's logs and a write test on a
-  single-setpoint TL04-1, not yet confirmed on a thermostat running Auto with a range.
+- **Auto heat/cool range** support is new in 1.1.0: verified from a user's logs, a write test on a single-setpoint
+  TL04-1 and on a 24 V unit running Auto with a range; not yet confirmed on a communicating unit running a range.
+- **24 V thermostats** are new in 1.1.0 and tested on one setup (heat pump with hydronic aux heat). A cooling run on
+  real equipment hasn't been seen yet. `recent_log` in diagnostics covers only the thermostat's own log window
+  (a few minutes): download diagnostics soon after the problem.
 - In **Heat**, a setpoint far above room temperature makes the system go straight to the furnace (dual-fuel staging).
   That's the equipment's behaviour, not the integration's.
 - Fan speed can't be changed in Auto or Fan-only (the thermostat locks it).

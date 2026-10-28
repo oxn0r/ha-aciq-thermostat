@@ -1,4 +1,4 @@
-"""Issue #5: thermostat wired for conventional 24 V (dev_24v_decorder, no AHU3 lines): read-only."""
+"""Issue #5: thermostat wired for conventional 24 V (dev_24v_decorder, no AHU3 lines)."""
 from __future__ import annotations
 
 import copy
@@ -15,7 +15,7 @@ from homeassistant.helpers import issue_registry as ir
 
 from custom_components.aciq_thermostat import coordinator
 from custom_components.aciq_thermostat.const import (
-    CONF_ADB_PORT, CONF_AUTO_DEPLOY, CONF_V24_SETPOINT_CONTROL, DOMAIN,
+    CONF_ADB_PORT, CONF_AUTO_DEPLOY, DOMAIN,
 )
 from custom_components.aciq_thermostat.diagnostics import async_get_config_entry_diagnostics
 from custom_components.aciq_thermostat.v24 import decode, normalize
@@ -88,7 +88,7 @@ def test_terminal_bitmasks() -> None:
 
 
 @pytest.mark.parametrize(("step", "ui_mode", "config", "auto_state", "sp", "mode", "preset", "action"), STEPS)
-async def test_24v_read_only_entities(hass, aioclient_mock, mock_deployer, state,
+async def test_24v_entities(hass, aioclient_mock, mock_deployer, state,
                                       step, ui_mode, config, auto_state, sp, mode, preset, action) -> None:
     e = await _setup(hass, aioclient_mock, _24v(state, ui_mode, config, auto_state, sp))
     assert e.state is ConfigEntryState.LOADED, step
@@ -120,10 +120,9 @@ async def test_24v_entities_and_issue(hass, aioclient_mock, mock_deployer, state
     for gone in ("binary_sensor.thermostat_furnace", "binary_sensor.thermostat_compressor",
                  "sensor.thermostat_outdoor_temperature", "binary_sensor.thermostat_aux_heat_allowed"):
         assert hass.states.get(gone) is None, gone
-    assert hass.states.get("binary_sensor.thermostat_local_control_enabled").state == "off"
+    assert hass.states.get("binary_sensor.thermostat_local_control_enabled").state == "on"
     issues = ir.async_get(hass)
-    ro = issues.async_get_issue(DOMAIN, f"read_only_24v_{e.entry_id}")
-    assert ro is not None and ro.severity == ir.IssueSeverity.WARNING
+    assert issues.async_get_issue(DOMAIN, f"read_only_24v_{e.entry_id}") is None      # no test-build note
     assert issues.async_get_issue(DOMAIN, f"conventional_24v_{e.entry_id}") is None
 
 
@@ -138,21 +137,19 @@ async def test_communicating_unit_has_no_24v_entities(hass, aioclient_mock, mock
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"read_only_24v_{e.entry_id}") is None
 
 
-async def test_24v_control_is_blocked(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_24v_fan_is_blocked(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
     e = await _setup(hass, aioclient_mock, _24v(state))
-    for service, data in (("set_temperature", {"temperature": 70}), ("set_hvac_mode", {"hvac_mode": "cool"}),
-                          ("turn_off", {})):
-        with pytest.raises(HomeAssistantError) as err:
-            await hass.services.async_call("climate", service, {"entity_id": CLIMATE, **data}, blocking=True)
-        assert err.value.translation_key == "read_only_24v", service
+    with pytest.raises(HomeAssistantError) as err:
+        await e.runtime_data.async_control({"fan": "auto"})
+    assert err.value.translation_key == "fan_24v"
     assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
-    assert e.runtime_data.commands[-1]["result"] == "blocked_read_only"
+    assert e.runtime_data.commands[-1]["result"] == "blocked_24v"
 
 
 async def test_24v_changes_logged_and_in_diagnostics(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
     caplog.set_level(logging.INFO)
     e = await _setup(hass, aioclient_mock, _24v(state))
-    assert "is in conventional 24 V mode: read-only" in caplog.text
+    assert "is in conventional 24 V mode. State" in caplog.text
     c = e.runtime_data
     c.async_set_updated_data(normalize(_24v(state, 1, "266", 0, 75)))   # setpoint up, heat call
     c._track_times(c.data)
@@ -167,7 +164,7 @@ async def test_24v_changes_logged_and_in_diagnostics(hass, aioclient_mock, mock_
 async def test_24v_before_state_lines(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
     caplog.set_level(logging.WARNING)
     e = await _setup(hass, aioclient_mock, _24v(state, seen=False))   # only meiju's comm_mode=1 so far
-    assert e.state is ConfigEntryState.SETUP_RETRY and "conventional 24 V mode" in e.reason
+    assert e.state is ConfigEntryState.SETUP_RETRY and "24 V thermostat hasn't reported" in e.reason
     issue = ir.async_get(hass).async_get_issue(DOMAIN, f"conventional_24v_{e.entry_id}")
     assert issue.translation_placeholders["summary"] == "no 24 V state lines yet"
     assert issue.learn_more_url.endswith("/issues/5")
@@ -185,23 +182,19 @@ async def test_unknown_state_is_not_called_24v(hass, aioclient_mock, mock_deploy
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"conventional_24v_{e.entry_id}") is None
 
 
-async def test_24v_setpoint_control_opt_in(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+async def test_24v_setpoint_control(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
     caplog.set_level(logging.INFO)
-    e = await _setup(hass, aioclient_mock, _24v(state, sp=70), **{CONF_V24_SETPOINT_CONTROL: True})
+    e = await _setup(hass, aioclient_mock, _24v(state, sp=70))
     await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
                                    blocking=True)
     posts = [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
     assert posts[-1][2] == {"temperature": 70, "unit": "F"}
     assert e.runtime_data.commands[-1]["readback"] == "applied" and "took setpoint 70" in caplog.text
-    with pytest.raises(HomeAssistantError) as err:                                      # no fan speed on 24 V
-        await e.runtime_data.async_control({"fan": "auto"})
-    assert err.value.translation_key == "read_only_24v"
-    assert len([c for c in aioclient_mock.mock_calls if c[0] == "POST"]) == len(posts)
 
 
-async def test_24v_mode_control_opt_in(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+async def test_24v_mode_control(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
     caplog.set_level(logging.INFO)
-    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=2), **{CONF_V24_SETPOINT_CONTROL: True})
+    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=2))
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": CLIMATE, "hvac_mode": "cool"},
                                    blocking=True)
     assert [c for c in aioclient_mock.mock_calls if c[0] == "POST"][-1][2] == {"mode": "cool"}
@@ -215,7 +208,7 @@ async def test_24v_mode_control_opt_in(hass, aioclient_mock, mock_deployer, stat
 
 
 async def test_24v_setpoint_not_reported(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
-    e = await _setup(hass, aioclient_mock, _24v(state, sp=72), **{CONF_V24_SETPOINT_CONTROL: True})
+    e = await _setup(hass, aioclient_mock, _24v(state, sp=72))
     with patch("custom_components.aciq_thermostat.coordinator.RANGE_VERIFY_TIMEOUT", 0):
         await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 68},
                                        blocking=True)
@@ -223,9 +216,8 @@ async def test_24v_setpoint_not_reported(hass, aioclient_mock, mock_deployer, st
     assert (cmd["readback"], cmd["reported"]) == ("not_applied", 72.0) and "did not report setpoint 68" in caplog.text
 
 
-async def test_24v_auto_range_opt_in(hass, aioclient_mock, mock_deployer, state) -> None:
-    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=0, low=66, high=72),
-                     **{CONF_V24_SETPOINT_CONTROL: True})
+async def test_24v_auto_range(hass, aioclient_mock, mock_deployer, state) -> None:
+    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=0, low=66, high=72))
     await hass.services.async_call("climate", "set_temperature",
                                    {"entity_id": CLIMATE, "target_temp_low": 66, "target_temp_high": 72},
                                    blocking=True)

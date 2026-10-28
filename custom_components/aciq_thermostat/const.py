@@ -9,8 +9,6 @@ CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
 CONF_SYNC_CLOCK = "sync_clock"
-# 24 V units (issue #5): allow setpoint commands while modes stay read-only (opt-in test)
-CONF_V24_SETPOINT_CONTROL = "v24_setpoint_control"
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
@@ -55,8 +53,11 @@ READ_ONLY_FIRMWARE = {
 # msmart lines, which carry network details)
 LOG_PATTERN = ("RAC_DEV_AHU3_STATE|parse_tlv|set24V|setTemp|msmart_cmd_ctrl|process_24v_cmd_a3|"
                "kv_parse|page_ui_refresh_background|thermostat_ui_dev_state_response")
-LOG_TAIL_LINES = 1500
-LOG_EXCLUDE = "cpTempUnit:"   # 24 V room/setpoint line, every second; its values are in the state
+LOG_TAIL_LINES = 1500        # kept after dropping unchanged state lines
+LOG_READ_LINES = 20000       # cap on what is read from the thermostat (both log files are ~1 MB)
+# State lines the thermostat repeats every second or so: kept only when they change
+LOG_STATE_SOURCES = ("RAC_DEV_AHU3_STATE", "process_24v_cmd_a3", "page_ui_refresh_background",
+                     "thermostat_ui_dev_state_response")
 
 # Bundled daemon (custom_components/aciq_thermostat/bin/)
 DAEMON_FILENAME = "thermostat_api"
@@ -102,5 +103,5 @@ PRESET_EMERGENCY_HEAT = "emergency_heat"
 
 ISSUE_FIRMWARE = "firmware_unverified"
 ISSUE_24V = "conventional_24v"
-ISSUE_24V_READ_ONLY = "read_only_24v"
+ISSUE_24V_READ_ONLY = "read_only_24v"   # pre-1.1.0 test-build note, only deleted now
 ISSUE_DEPLOY = "deploy_failed"

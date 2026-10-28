@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0 — 2026-10-28
+Everything from 1.1.0b1–b5 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5),
+[#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7), [#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)),
+plus the changes below. Communicating thermostats on the verified firmware behave as in 1.0.7, apart from the Auto range.
+### Added
+- **Conventional 24 V thermostats** (#5): detected automatically and controlled like communicating ones: mode (Off,
+  Heat, Cool, Auto, Fan only, the *Emergency heat* preset), setpoint and Auto low/high, using the app's commands. Each
+  command is checked against what the thermostat then reports. Entities for the 24 V outputs and wiring. No fan speed
+  (single fan output) and no equipment data. Tested on a heat pump with hydronic aux heat.
+- **Auto heat/cool range** (#7) where the thermostat runs Auto with a range.
+- **Firmware `tina.tangly.20260821.063106`, read-only** (#8).
+- Diagnostics: command log with readback, 24 V state changes (`v24_events`) and `recent_log` (the thermostat's own
+  state and command lines, so no ADB capture is needed); serial and IPs redacted.
+### Changed (since 1.1.0b5)
+- 24 V control is always on: the *24 V thermostats: allow control (test)* option and the *test build* Repairs note are
+  removed (a stored option value is ignored).
+- `recent_log` keeps every command line and drops state lines that repeat unchanged (ignoring room temperature and
+  Wi-Fi signal), so commands aren't crowded out of the thermostat's few-minute log window.
+
 ## 1.1.0b5 — 2026-10-28 (pre-release)
 ### Added
 - **24 V mode control, opt-in test** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): the option, now

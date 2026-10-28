@@ -166,7 +166,7 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=_deadband),
-    # ---- conventional 24 V (read-only) ----
+    # ---- conventional 24 V ----
     AciqSensorDescription(key="outputs_24v", translation_key="outputs_24v", v24=True,
                           value_fn=lambda d, eq: (", ".join((d.get("v24_outputs") or {}).get("active", []))
                                                   or "none") if (d.get("v24_outputs") or {}).get("known")
@@ -197,7 +197,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     c = entry.runtime_data
-    is_24v = (c.data or {}).get("read_only") == "24v"
+    is_24v = (c.data or {}).get("wiring") == "24v"
     async_add_entities(AciqSensor(c, desc) for desc in SENSORS if for_unit(desc, is_24v))
 
 

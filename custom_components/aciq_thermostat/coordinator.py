@@ -37,7 +37,6 @@ from .const import (
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
     CONF_SYNC_CLOCK,
-    CONF_V24_SETPOINT_CONTROL,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
     DEFAULT_PORT,
@@ -93,7 +92,7 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m" if h else (f"{m}m{sec:02d}s" if m else f"{sec}s")
 
 
-RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK, CONF_V24_SETPOINT_CONTROL})
+RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK})
 # What a 24 V unit accepts with setpoint control on (the daemon refuses mode and fan there too)
 V24_CONTROL_KEYS = frozenset({"mode", "temperature", "target_temp_low", "target_temp_high", "unit"})  # no fan
 
@@ -478,15 +477,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="no_state_yet")
         ir.async_delete_issue(self.hass, DOMAIN, issue_24v)
         self._track_times(data)
-        ro_issue = f"{ISSUE_24V_READ_ONLY}_{self.config_entry.entry_id}"
-        if data.get("read_only"):
-            ir.async_create_issue(
-                self.hass, DOMAIN, ro_issue, is_fixable=False, severity=ir.IssueSeverity.WARNING,
-                translation_key=ISSUE_24V_READ_ONLY,
-                learn_more_url="https://github.com/oxn0r/ha-aciq-thermostat/issues/5",
-            )
-        else:
-            ir.async_delete_issue(self.hass, DOMAIN, ro_issue)
+        ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_24V_READ_ONLY}_{self.config_entry.entry_id}")
 
         issue_id = f"{ISSUE_FIRMWARE}_{self.config_entry.entry_id}"
         if data.get("control_enabled") is False:
@@ -501,8 +492,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     def _report_24v(self, issue_id: str, v24: dict[str, Any]) -> None:
-        """Conventional 24 V wiring (issue #5): not supported yet. Say so clearly and log the
-        raw 24 V fields, which are what's needed to add support."""
+        """Conventional 24 V wiring (issue #5) without 24 V state lines yet: say so and log the
+        raw 24 V fields, which are what's needed if it stays that way."""
         summary = (f"setpoint {v24.get('setpoint')}, Auto {v24.get('low')}-{v24.get('high')}, "
                    f"op_mode {v24.get('op_mode')}, heat_mode {v24.get('heat_mode')}, "
                    f"terminal_state {v24.get('terminal_state')}") if v24.get("seen") else "no 24 V state lines yet"
@@ -514,8 +505,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # setup retries build a new coordinator each time: remember per host, log on change only
         if _V24_LOGGED.get(self.host) != summary:
             _V24_LOGGED[self.host] = summary
-            _LOGGER.warning("Thermostat on %s runs in conventional 24 V mode, which isn't supported yet "
-                            "(see issue #5). Raw 24 V state: %s", self.host, v24)
+            _LOGGER.warning("Thermostat on %s runs in conventional 24 V mode and hasn't reported its 24 V "
+                            "state yet (see issue #5). Raw 24 V state: %s", self.host, v24)
 
     async def _handle_failure(self, err: BaseException) -> dict[str, Any]:
         """Classify, log once per outage, redeploy when it can help. Returns data or raises."""
@@ -559,14 +550,14 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.outage = None
 
     def _track_v24(self, data: dict[str, Any]) -> None:
-        """24 V (read-only) units: log each change of mode/setpoints/outputs and keep the last
+        """24 V units: log each change of mode/setpoints/outputs and keep the last
         60 for diagnostics. That timeline is what's needed to confirm the mapping."""
-        if data.get("read_only") != "24v":
+        if data.get("wiring") != "24v":
             return
         sig = signature(data)
         last, self._v24_last = self._v24_last, sig
         if last is None:
-            _LOGGER.info("Thermostat on %s is in conventional 24 V mode: read-only. State: %s", self.host, sig)
+            _LOGGER.info("Thermostat on %s is in conventional 24 V mode. State: %s", self.host, sig)
             self.v24_events.append({"time": dt_util.utcnow().isoformat(timespec="seconds"), "initial": sig})
             return
         changes = {k: [last.get(k), v] for k, v in sig.items() if last.get(k) != v}
@@ -602,14 +593,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.commands.append({"time": dt_util.utcnow().isoformat(timespec="seconds"),
                               "payload": payload, "result": result, **fields})
 
-    def v24_control(self) -> bool:
-        return bool(self.config_entry.options.get(CONF_V24_SETPOINT_CONTROL, False))
-
     async def async_control(self, payload: dict[str, Any]) -> None:
         data = self.data or {}
-        if data.get("read_only") and not (self.v24_control() and set(payload) <= V24_CONTROL_KEYS):
-            self._command(payload, "blocked_read_only")
-            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="read_only_24v")
+        if data.get("wiring") == "24v" and not set(payload) <= V24_CONTROL_KEYS:
+            self._command(payload, "blocked_24v")
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="fan_24v")
         if data.get("control_enabled") is False:
             self._command(payload, "blocked_firmware")
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="control_unverified",
@@ -637,7 +625,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Sent %s to %s; daemon replied %s", payload, self.host, body.strip())
         await asyncio.sleep(REFRESH_DELAY)
         await self.async_refresh()
-        if data.get("read_only"):
+        if data.get("wiring") == "24v":
             want: dict[str, Any] = {}
             if "mode" in payload:
                 want["mode"] = payload["mode"]
@@ -647,7 +635,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._verify_v24(want)
 
     async def _verify_v24(self, want: dict[str, Any]) -> None:
-        """24 V test control: confirm set24VMode / set24VTemp took the mode and setpoint (unit
+        """24 V: confirm set24VMode / set24VTemp took the mode and setpoint (unit
         conversion is the daemon's, so the setpoint is compared only in the thermostat's own unit)."""
         def reported() -> dict[str, Any]:
             return {k: (self.data or {}).get(k) for k in want}

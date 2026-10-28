@@ -152,4 +152,4 @@ async def test_options(hass: HomeAssistant, mock_deployer) -> None:
             r["flow_id"], {CONF_AUTO_DEPLOY: False, CONF_EXTRA_ALLOWED_IPS: " 10.0.0.4 ;10.0.0.40,"})
     assert r["type"] is FlowResultType.CREATE_ENTRY
     assert e.options == {CONF_AUTO_DEPLOY: False, CONF_EXTRA_ALLOWED_IPS: "10.0.0.4, 10.0.0.40",
-                         "block_egress": False, "sync_clock": True, "v24_setpoint_control": False}
+                         "block_egress": False, "sync_clock": True}
