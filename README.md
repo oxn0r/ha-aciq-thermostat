@@ -73,7 +73,7 @@ Want the details? Everything below explains how it works, what's verified, and h
 | Device | Status |
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
-| Same thermostat on build `tina.tangly.20260821.063106` | **Read-only** ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): mode, setpoints, temperature, humidity, compressor; no equipment data, control blocked until verified |
+| Same thermostat on build `tina.tangly.20260821.063106` (e.g. Midea-branded) | **Supported** since 1.1.1 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): control, mode, setpoints, temperature, humidity, compressor; no equipment data (outdoor unit, furnace). Each command is checked against what the thermostat reports |
 | Same thermostat on another firmware build | New setups stop at pre-flight (open an issue with its output); a thermostat that updates itself after setup keeps readings, with control blocked (see [Safety](#safety)) |
 | TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Supported** since 1.1.0 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): mode (Off, Heat, Cool, Auto, Fan only, Emergency heat), setpoint, Auto low/high, room temperature and the 24 V outputs it drives. No fan speed (single fan output) and no equipment data. Tested on a heat pump with hydronic aux heat; other 24 V setups, please report |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |

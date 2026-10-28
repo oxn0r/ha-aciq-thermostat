@@ -156,6 +156,9 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
                                                 .heating_max = -1, .cooling_min = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
+/* Control only (no dev_app memory reads): same command parser and keys as VERIFIED_FIRMWARE,
+   from the app's commands on that build (issue #8, 2026-10-28). The integration checks dev_app's hash. */
+#define CONTROL_FIRMWARE "tina.tangly.20260821.063106"
 static char firmware_id[64] = "unknown";
 static int control_enabled = 0;
 #define MAX_ALLOWED 8
@@ -1496,7 +1499,8 @@ int main(int argc, char *argv[]) {
 
     read_firmware_id();
     daemon_start_uptime = read_uptime();
-    control_enabled = force_control || strcmp(firmware_id, VERIFIED_FIRMWARE) == 0;
+    control_enabled = force_control || strcmp(firmware_id, VERIFIED_FIRMWARE) == 0 ||
+                      strcmp(firmware_id, CONTROL_FIRMWARE) == 0;
 
     /* Set up signal handlers */
     signal(SIGINT, handle_signal);

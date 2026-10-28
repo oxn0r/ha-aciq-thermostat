@@ -8,7 +8,7 @@ import pytest
 
 from custom_components.aciq_thermostat.deployer import Deployer, DeployError, compact_log
 
-from custom_components.aciq_thermostat.const import LOG_READ_LINES, READ_ONLY_FIRMWARE, VERIFIED_DEV_APP_SHA256
+from custom_components.aciq_thermostat.const import CONTROL_FIRMWARE, LOG_READ_LINES, VERIFIED_DEV_APP_SHA256
 
 from .fake_adb import BUNDLED_SHA, FakeThermostat
 
@@ -37,11 +37,11 @@ async def test_preflight_wrong_firmware(thermo: FakeThermostat) -> None:
     assert "❌ firmware" in res.summary()
 
 
-async def test_preflight_read_only_firmware(thermo: FakeThermostat) -> None:
+async def test_preflight_control_firmware(thermo: FakeThermostat) -> None:
     thermo.firmware = "tina.tangly.20260821.063106"                  # issue #8
-    thermo.dev_app_sha = READ_ONLY_FIRMWARE[thermo.firmware]
+    thermo.dev_app_sha = CONTROL_FIRMWARE[thermo.firmware]
     res = await Deployer("h", 5555).preflight()
-    assert res.passed and "supported read-only" in res.summary()
+    assert res.passed and "supported, no equipment data" in res.summary()
     thermo.dev_app_sha = VERIFIED_DEV_APP_SHA256                       # a different dev_app on that build
     assert not (await Deployer("h", 5555).preflight()).passed
 
@@ -110,6 +110,28 @@ async def test_deploy_fresh_pushes_and_starts(thermo: FakeThermostat) -> None:
     assert thermo.pushes == 1 and thermo.daemon_sha == BUNDLED_SHA
     assert d.last_allowlist == ["10.0.0.2", "10.0.0.40"]
     assert thermo.daemon_cmdline == "/tmp/thermostat_api -d -a 10.0.0.2 -a 10.0.0.40"
+
+
+async def test_allowlist_behind_docker_nat(thermo: FakeThermostat) -> None:
+    """#8: HA in Docker (bridge) sees 172.17.0.2; the thermostat sees the host's LAN IP."""
+    thermo.local_ip = "172.17.0.2"
+    thermo.adb_peers = ["10.0.0.169:61234"]                     # NAT changed the source port
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    assert thermo.daemon_cmdline == "/tmp/thermostat_api -d -a 172.17.0.2 -a 10.0.0.169"
+
+
+async def test_allowlist_ignores_other_clients(thermo: FakeThermostat) -> None:
+    thermo.adb_peers = ["10.0.0.2:50000"]                        # host networking: same address
+    d = Deployer("h", 5555)
+    await d.ensure_daemon([])
+    assert d.last_allowlist == ["10.0.0.2"]
+    thermo.adb_peers = ["10.0.0.7:41000", "10.0.0.8:42000"]      # other ADB clients, no port match
+    await d.ensure_daemon([], force=True)
+    assert d.last_allowlist == ["10.0.0.2"]
+    thermo.adb_peers = ["10.0.0.7:41000", "::ffff:10.0.0.169:50000"]   # our port behind NAT
+    await d.ensure_daemon([], force=True)
+    assert d.last_allowlist == ["10.0.0.2", "10.0.0.169"]
 
 
 async def test_deploy_idempotent(thermo: FakeThermostat) -> None:

@@ -23,12 +23,12 @@ from adb_shell.adb_device_async import AdbDeviceTcpAsync
 from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeoutException
 
 from .const import (
+    CONTROL_FIRMWARE,
     DAEMON_DEVICE_PATH,
     DAEMON_FILENAME,
     LOG_PATTERN,
     LOG_READ_LINES,
     LOG_STATE_SOURCES,
-    READ_ONLY_FIRMWARE,
     VERIFIED_DEV_APP_SHA256,
     VERIFIED_FIRMWARE,
 )
@@ -203,13 +203,13 @@ class Deployer:
 
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
                 res.firmware = fw or None
-                read_only = fw in READ_ONLY_FIRMWARE
-                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or read_only,
+                other = fw in CONTROL_FIRMWARE
+                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or other,
                                         f"{fw or 'unknown'} (verified: {VERIFIED_FIRMWARE})"
-                                        + (": supported read-only" if read_only else "")))
+                                        + (": supported, no equipment data" if other else "")))
 
                 sha = (await self._sh(dev, "sha256sum /usr/bin/dev_app 2>/dev/null")).split(" ")[0]
-                want = READ_ONLY_FIRMWARE[fw] if read_only else VERIFIED_DEV_APP_SHA256
+                want = CONTROL_FIRMWARE[fw] if other else VERIFIED_DEV_APP_SHA256
                 res.checks.append(Check("dev_app_build", sha == want, f"sha256 {sha[:16] or 'missing'}…"))
 
                 pid = await self._sh(dev, "pidof dev_app")
@@ -247,14 +247,34 @@ class Deployer:
     # ---------------------------------------------------------------- deploy
 
     @staticmethod
-    def _local_ip(dev: AdbDeviceTcpAsync) -> str | None:
-        """Our address as the thermostat sees it (from the live ADB socket)."""
+    def _local_sock(dev: AdbDeviceTcpAsync) -> tuple[str, int] | None:
+        """Our side of the live ADB socket (address, port)."""
         try:
             writer = dev._io_manager._transport._writer  # adb-shell 0.4.4 internals
             sockname = writer.get_extra_info("sockname")
-            return str(sockname[0]) if sockname else None
-        except (AttributeError, TypeError, IndexError):
+            return (str(sockname[0]), int(sockname[1])) if sockname else None
+        except (AttributeError, TypeError, IndexError, ValueError):
             return None
+
+    async def _our_ips(self, dev: AdbDeviceTcpAsync) -> list[str]:
+        """Our address as the thermostat sees it: our side of the ADB socket, plus the peer
+        address of that connection on the thermostat, which differs behind NAT (Home Assistant
+        in Docker with bridge networking sees 172.17.x, the thermostat the host's LAN IP; #8)."""
+        local = self._local_sock(dev)
+        ips = [local[0]] if local else []
+        out = await self._sh(dev, f"netstat -tn 2>/dev/null | grep ':{self.adb_port} '")
+        peers: list[tuple[str, str]] = []
+        for line in out.splitlines():
+            f = line.split()
+            if len(f) >= 6 and f[5] == "ESTABLISHED" and f[3].endswith(f":{self.adb_port}"):
+                host, _, port = f[4].rpartition(":")
+                peers.append((host.removeprefix("::ffff:"), port))
+        same_port = [h for h, p in peers if local and p == str(local[1])]
+        if same_port:
+            ips.append(same_port[0])
+        elif len({h for h, _ in peers}) == 1:             # NAT changed the port: the only ADB client
+            ips.append(peers[0][0])
+        return list(dict.fromkeys(ip for ip in ips if ip))
 
     async def _apply_egress(self, dev: AdbDeviceTcpAsync, enable: bool, allow_ips: list[str]) -> None:
         """Runtime (non-persistent) OUTPUT filter: drop everything except LAN, allowlisted
@@ -360,7 +380,7 @@ class Deployer:
             try:
                 present = (await self._sh(
                     dev, "iptables -C OUTPUT -j ACIQ_EGRESS 2>/dev/null && echo PRESENT || echo MISSING")) == "PRESENT"
-                allow = list(dict.fromkeys(ip for ip in [self._local_ip(dev), *extra_ips] if ip))
+                allow = list(dict.fromkeys([*await self._our_ips(dev), *extra_ips]))
                 if not enable:
                     if not present:
                         self.last_egress = {"enabled": False}
@@ -396,8 +416,7 @@ class Deployer:
         async with self._lock:
             dev = await self._session()
             try:
-                ips = [ip for ip in [self._local_ip(dev), *extra_ips] if ip]
-                ips = list(dict.fromkeys(ips))
+                ips = list(dict.fromkeys([*await self._our_ips(dev), *extra_ips]))
                 if not ips:
                     raise DeployError("could not determine Home Assistant's IP for the allowlist")
                 self.last_allowlist = ips
@@ -406,7 +425,7 @@ class Deployer:
                 want_cmd = f"{DAEMON_DEVICE_PATH} -d {port_arg}{args}"
 
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
-                if fw != VERIFIED_FIRMWARE:
+                if fw != VERIFIED_FIRMWARE and fw not in CONTROL_FIRMWARE:
                     _LOGGER.warning("Firmware %s is not verified; daemon will run read-only", fw)
                 up = (await self._sh(dev, "cut -d' ' -f1 /proc/uptime")).strip()
                 try:

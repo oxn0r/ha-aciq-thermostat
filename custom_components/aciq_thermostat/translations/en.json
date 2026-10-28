@@ -305,7 +305,7 @@
       "message": "The 24 V thermostat hasn't reported its state yet (see the repair issue)"
     },
     "control_unverified": {
-      "message": "Control is disabled: thermostat firmware {firmware} is supported read-only until it is verified"
+      "message": "Control is disabled: thermostat firmware {firmware} isn't verified yet"
     },
     "fan_24v": {
       "message": "Fan speed can't be set on a 24 V thermostat (it has a single fan output)"

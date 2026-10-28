@@ -31,11 +31,11 @@ def ts() -> str:
 
 
 class Daemon:
-    def __init__(self, initial_log: str | None = None) -> None:
+    def __init__(self, initial_log: str | None = None, firmware: str = "tina.tangly.20260314.152301") -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="tapi-"))
         self.log, self.old = self.dir / "lastlog", self.dir / "lastlog.old"
         (self.dir / "uptime").write_text("1234.56 999.00\n")
-        (self.dir / "release").write_text("DISTRIB_ID='tina.tangly.20260314.152301'\n")
+        (self.dir / "release").write_text(f"DISTRIB_ID='{firmware}'\n")
         self.log.write_text(AHU3.format(ts=ts(), power=1, mode=1, auto=4, sp=72) if initial_log is None
                             else initial_log)
         self.bin = self.dir / "tapi"
@@ -403,9 +403,20 @@ def _t_firmware_0821(d: Daemon) -> None:
     s = d.get("/api/state")
     assert s["comm_mode"] == "communicating" and s["mode"] == "heat" and s["setpoint"] == 72, s
     assert s["compressor_running"] and s["dev"]["zone_control"] == 0 and s["dev"]["zone_upper"] == 79, s
+    assert s["control_enabled"] and s["equipment"]["available"] is False, s     # control, no memory reads
+    code, r = d.post("/api/control", {"mode": "cool", "fan": "high", "temperature": 70})
+    assert "control disabled" not in r.get("error", ""), r                      # passes the gate (no IPC here)
 
 
-V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts())))
+def _t_unknown_firmware(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert not s["control_enabled"], s
+    code, r = d.post("/api/control", {"temperature": 70})
+    assert code == 400 and "control disabled" in r["error"], r
+
+
+V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
+V24_TESTS.append((_t_unknown_firmware, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20270101.000000"))
 
 
 def main() -> int:
@@ -414,8 +425,8 @@ def main() -> int:
     failed = 0
     for t in tests:
         if isinstance(t, tuple):
-            t, log = t
-            d = Daemon(log())
+            t, log, *fw = t
+            d = Daemon(log(), *fw)
         else:
             d = Daemon()
         try:

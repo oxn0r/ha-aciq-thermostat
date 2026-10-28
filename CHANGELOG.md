@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1 — 2026-10-28
+### Fixed
+- **Home Assistant in Docker with bridge networking** ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)):
+  the daemon only allowed the container's own address (e.g. `172.17.0.2`), while the thermostat sees Home
+  Assistant's requests from the Docker host's LAN IP, so every request was dropped. The integration now also asks the
+  thermostat which address its ADB connection comes from and allows that. The *extra IPs* workaround is no longer
+  needed (it does no harm).
+### Added
+- **Control on firmware `tina.tangly.20260821.063106`** (#8): the phone app's commands on that build go through the
+  same command parser with the same keys and fan values, so mode, setpoint, Auto range and fan are enabled. Equipment
+  data stays off there (it reads dev_app memory, whose layout differs per build).
+- On 24 V units and firmware other than the verified build, every command is checked against what the thermostat
+  then reports (`readback` in the command log, plus a warning in the log if it didn't take).
+
 ## 1.1.0 — 2026-10-28
 Everything from 1.1.0b1–b5 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5),
 [#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7), [#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)),

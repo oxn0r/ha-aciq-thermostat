@@ -228,7 +228,7 @@ async def test_24v_auto_range(hass, aioclient_mock, mock_deployer, state) -> Non
 
 async def test_unverified_firmware_blocks_control(hass, aioclient_mock, mock_deployer, state) -> None:
     s = copy.deepcopy(state)
-    s.update(control_enabled=False, firmware="tina.tangly.20260821.063106")      # issue #8, read-only build
+    s.update(control_enabled=False, firmware="tina.tangly.20270101.000000")      # a build nobody has verified
     e = await _setup(hass, aioclient_mock, s)
     with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
@@ -238,3 +238,29 @@ async def test_unverified_firmware_blocks_control(hass, aioclient_mock, mock_dep
     assert e.runtime_data.commands[-1]["result"] == "blocked_firmware"
     diag = await async_get_config_entry_diagnostics(hass, e)
     assert "TempUnit:1" in diag["recent_log"][0]
+
+
+async def test_firmware_0821_control_with_readback(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    """#8: control on 20260821; every command is checked against what the thermostat reports."""
+    caplog.set_level(logging.INFO)
+    s = copy.deepcopy(state)
+    s.update(firmware="tina.tangly.20260821.063106", mode="heat", fan="high", setpoint=72)
+    e = await _setup(hass, aioclient_mock, s)
+    await hass.services.async_call("climate", "set_fan_mode", {"entity_id": CLIMATE, "fan_mode": "high"},
+                                   blocking=True)
+    cmd = e.runtime_data.commands[-1]
+    assert cmd["payload"] == {"fan": "high"} and (cmd["readback"], cmd["reported_fan"]) == ("applied", "high")
+    with patch("custom_components.aciq_thermostat.coordinator.RANGE_VERIFY_TIMEOUT", 0):
+        await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
+                                       blocking=True)
+    cmd = e.runtime_data.commands[-1]
+    assert (cmd["readback"], cmd["reported"]) == ("not_applied", 72) and "did not report setpoint 70" in caplog.text
+
+
+async def test_verified_firmware_has_no_readback_wait(hass, aioclient_mock, mock_deployer, state) -> None:
+    s = copy.deepcopy(state)
+    s.update(mode="heat", setpoint=72)
+    e = await _setup(hass, aioclient_mock, s)
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
+                                   blocking=True)
+    assert "readback" not in e.runtime_data.commands[-1]

@@ -625,18 +625,22 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Sent %s to %s; daemon replied %s", payload, self.host, body.strip())
         await asyncio.sleep(REFRESH_DELAY)
         await self.async_refresh()
-        if data.get("wiring") == "24v":
+        # newer paths (24 V wiring, firmware other than the verified one): confirm each command landed
+        if data.get("wiring") == "24v" or data.get("firmware") != VERIFIED_FIRMWARE:
             want: dict[str, Any] = {}
             if "mode" in payload:
                 want["mode"] = payload["mode"]
             if "temperature" in payload:
                 want["setpoint"] = float(payload["temperature"])
+            if "fan" in payload:
+                want["fan"] = payload["fan"]
             if want:
-                await self._verify_v24(want)
+                await self._verify_readback(want)
 
-    async def _verify_v24(self, want: dict[str, Any]) -> None:
-        """24 V: confirm set24VMode / set24VTemp took the mode and setpoint (unit
-        conversion is the daemon's, so the setpoint is compared only in the thermostat's own unit)."""
+    async def _verify_readback(self, want: dict[str, Any]) -> None:
+        """Confirm the thermostat reports the commanded mode / setpoint / fan (the setpoint is
+        sent in the thermostat's own unit, so it compares directly). Logged and kept in the
+        command log; not an error, since the thermostat can legitimately adjust a value."""
         def reported() -> dict[str, Any]:
             return {k: (self.data or {}).get(k) for k in want}
 
@@ -651,13 +655,15 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             record["reported"] = got["setpoint"]
         if "mode" in got:
             record["reported_mode"] = got["mode"]
+        if "fan" in got:
+            record["reported_fan"] = got["fan"]
         self.commands[-1].update(record)
         def fmt(d: dict[str, Any]) -> str:
             return ", ".join(f"{k} {v:g}" if isinstance(v, float) else f"{k} {v}" for k, v in d.items())
         if got != want:
-            _LOGGER.warning("24 V thermostat on %s did not report %s (reports %s)", self.host, fmt(want), fmt(got))
+            _LOGGER.warning("Thermostat on %s did not report %s (reports %s)", self.host, fmt(want), fmt(got))
         else:
-            _LOGGER.info("24 V thermostat on %s took %s", self.host, fmt(want))
+            _LOGGER.info("Thermostat on %s took %s", self.host, fmt(want))
 
     def auto_range(self) -> tuple[float | None, float | None]:
         dev = (self.data or {}).get("dev", {})

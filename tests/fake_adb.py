@@ -28,6 +28,7 @@ class FakeThermostat:
     push_corrupts: bool = False
     start_fails: bool = False
     local_ip: str = "10.0.0.2"
+    adb_peers: list[str] = field(default_factory=list)   # thermostat's view of ADB clients, "ip:port"
     commands: list[str] = field(default_factory=list)
     pushes: int = 0
     uptime: str = "1234.56"
@@ -137,6 +138,9 @@ class FakeAdb:
                 lines += [f"P {c} {t.daemon_pid}" for c in t.children]
             lines += [f"P {s_} 1" for s_ in t.strays]
             return "\n".join(lines)
+        if cmd.startswith("netstat -tn"):
+            return "\n".join(f"tcp        0      0 10.0.0.65:5555          {p:<22}  ESTABLISHED"
+                             for p in t.adb_peers)
         if "netstat" in cmd:
             return "1" if t.daemon_pid else "0"
         if cmd.startswith("kill ") and "2>/dev/null; true" in cmd and "pidof" not in cmd:
