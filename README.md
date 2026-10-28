@@ -73,8 +73,9 @@ Want the details? Everything below explains how it works, what's verified, and h
 | Device | Status |
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
-| Same thermostat on another firmware build | Readings only; control is blocked automatically (see [Safety](#safety)) |
-| TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Read-only** in 1.1.0b2 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5), [test plan](docs/24V-TEST-PLAN.md)): mode, setpoints, room temperature and 24 V outputs; control disabled until confirmed |
+| Same thermostat on build `tina.tangly.20260821.063106` | **Read-only** in 1.1.0b4 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): mode, setpoints, temperature, humidity, compressor; no equipment data, control blocked until verified |
+| Same thermostat on another firmware build | Not set up by default (pre-flight fails); open an issue with the pre-flight output |
+| TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Read-only** since 1.1.0b2 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5), [test plan](docs/24V-TEST-PLAN.md)): mode, setpoints, room temperature and 24 V outputs. 1.1.0b4: setpoint and Auto range control as an opt-in test; modes stay read-only |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |
 
 Verified hardware: TL04-1 hardware V4.3, screen firmware LD:1.2.60, indoor unit firmware
@@ -261,7 +262,8 @@ packets/s to zero, and system load fell noticeably.
 | Symptom | Fix |
 |---|---|
 | Setup says *Could not reach the thermostat over ADB* | Check IP and port 5555 reachability from HA; disconnect any other `adb` session; power-cycle the thermostat if adbd is stuck |
-| *Pre-flight checks failed* | Firmware or device differs from the verified build. Open an issue with the diagnostics download |
+| *Pre-flight checks failed* | Firmware or device differs from the verified build. Open an issue with the pre-flight output |
+| Reporting a problem | Make the change on the thermostat (or in the app), then within a few minutes download diagnostics: it includes the thermostat's recent state and command log lines (`recent_log`), so no ADB capture is needed |
 | Entities unavailable after a thermostat reboot | Wait ~1 minute (auto-redeploy) or press **Redeploy daemon** |
 | Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Open an issue so the new build can be verified |
 | Commands ignored / 400 errors | See the HA log; the daemon reports why (validation, fan lock, firmware guard) |

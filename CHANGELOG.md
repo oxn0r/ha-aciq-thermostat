@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0b4 — 2026-10-28 (pre-release)
+### Added
+- **24 V setpoint control, opt-in test** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): with
+  *24 V thermostats: allow setpoint changes (test)* on in the options, the setpoint and the Auto low/high can be
+  changed from Home Assistant. The app's capture showed it uses the same command keys as on communicating units
+  (`TempUnit`/temperature, `0x54`/`0x55`). The integration checks the thermostat reports the new setpoint. Modes and
+  fan stay read-only, and the daemon refuses them on 24 V units too.
+- **Firmware `tina.tangly.20260821.063106`, read-only** ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)):
+  pre-flight accepts it (with its own `dev_app` hash). Its dev_app logs the same state lines, so mode, setpoints,
+  temperature, humidity and compressor state work; equipment data and control stay off until it is verified.
+- **Diagnostics include `recent_log`**: the thermostat's last ~1,500 state and command lines (dev_app/meiju only, no
+  network lines), read from both log files. Testers make their changes and download diagnostics, with no ADB capture.
+### Changed
+- Commands on unverified firmware are blocked in Home Assistant with a clear message instead of a daemon error.
+- Daemon: on 24 V units, setpoints use the thermostat's own unit and Auto range.
+
 ## 1.1.0b3 — 2026-10-27 (pre-release)
 Still read-only on 24 V units. From the first equipment runs on [#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5).
 ### Fixed

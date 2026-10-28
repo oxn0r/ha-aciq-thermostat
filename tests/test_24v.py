@@ -5,6 +5,7 @@ import copy
 import logging
 
 import pytest
+from unittest.mock import patch
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components.climate import HVACAction, HVACMode
@@ -13,7 +14,9 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.aciq_thermostat import coordinator
-from custom_components.aciq_thermostat.const import CONF_ADB_PORT, CONF_AUTO_DEPLOY, DOMAIN
+from custom_components.aciq_thermostat.const import (
+    CONF_ADB_PORT, CONF_AUTO_DEPLOY, CONF_V24_SETPOINT_CONTROL, DOMAIN,
+)
 from custom_components.aciq_thermostat.diagnostics import async_get_config_entry_diagnostics
 from custom_components.aciq_thermostat.v24 import decode, normalize
 from .conftest import HOST, SERIAL
@@ -66,11 +69,11 @@ def fresh_log_memory():
     coordinator._V24_LOGGED.clear()
 
 
-async def _setup(hass, aioclient_mock, st) -> MockConfigEntry:
+async def _setup(hass, aioclient_mock, st, **options) -> MockConfigEntry:
     aioclient_mock.get(f"{BASE}/api/state", json=st)
     aioclient_mock.post(f"{BASE}/api/control", json={"success": True})
     e = MockConfigEntry(domain=DOMAIN, unique_id=SERIAL, title="Thermostat",
-                        data={"host": HOST, "port": 8080, CONF_ADB_PORT: 5555}, options={CONF_AUTO_DEPLOY: True})
+                        data={"host": HOST, "port": 8080, CONF_ADB_PORT: 5555}, options={CONF_AUTO_DEPLOY: True, **options})
     e.add_to_hass(hass)
     await hass.config_entries.async_setup(e.entry_id)
     await hass.async_block_till_done()
@@ -180,3 +183,52 @@ async def test_unknown_state_is_not_called_24v(hass, aioclient_mock, mock_deploy
     e = await _setup(hass, aioclient_mock, s)
     assert e.state is ConfigEntryState.SETUP_RETRY and "has not seen" in e.reason
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"conventional_24v_{e.entry_id}") is None
+
+
+async def test_24v_setpoint_control_opt_in(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    e = await _setup(hass, aioclient_mock, _24v(state, sp=70), **{CONF_V24_SETPOINT_CONTROL: True})
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
+                                   blocking=True)
+    posts = [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    assert posts[-1][2] == {"temperature": 70, "unit": "F"}
+    assert e.runtime_data.commands[-1]["readback"] == "applied" and "took setpoint 70" in caplog.text
+    for service, data in (("set_hvac_mode", {"hvac_mode": "cool"}), ("turn_off", {})):   # modes stay read-only
+        with pytest.raises(HomeAssistantError) as err:
+            await hass.services.async_call("climate", service, {"entity_id": CLIMATE, **data}, blocking=True)
+        assert err.value.translation_key == "read_only_24v", service
+    assert len([c for c in aioclient_mock.mock_calls if c[0] == "POST"]) == len(posts)
+
+
+async def test_24v_setpoint_not_reported(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    e = await _setup(hass, aioclient_mock, _24v(state, sp=72), **{CONF_V24_SETPOINT_CONTROL: True})
+    with patch("custom_components.aciq_thermostat.coordinator.RANGE_VERIFY_TIMEOUT", 0):
+        await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 68},
+                                       blocking=True)
+    cmd = e.runtime_data.commands[-1]
+    assert (cmd["readback"], cmd["reported"]) == ("not_applied", 72.0) and "did not report setpoint 68" in caplog.text
+
+
+async def test_24v_auto_range_opt_in(hass, aioclient_mock, mock_deployer, state) -> None:
+    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=0, low=66, high=72),
+                     **{CONF_V24_SETPOINT_CONTROL: True})
+    await hass.services.async_call("climate", "set_temperature",
+                                   {"entity_id": CLIMATE, "target_temp_low": 66, "target_temp_high": 72},
+                                   blocking=True)
+    post = [c for c in aioclient_mock.mock_calls if c[0] == "POST"][-1]
+    assert post[2] == {"target_temp_low": 66, "target_temp_high": 72, "unit": "F"}
+    assert e.runtime_data.commands[-1]["readback"] == "applied"
+
+
+async def test_unverified_firmware_blocks_control(hass, aioclient_mock, mock_deployer, state) -> None:
+    s = copy.deepcopy(state)
+    s.update(control_enabled=False, firmware="tina.tangly.20260821.063106")      # issue #8, read-only build
+    e = await _setup(hass, aioclient_mock, s)
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("climate", "set_temperature", {"entity_id": CLIMATE, "temperature": 70},
+                                       blocking=True)
+    assert err.value.translation_key == "control_unverified"
+    assert not [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
+    assert e.runtime_data.commands[-1]["result"] == "blocked_firmware"
+    diag = await async_get_config_entry_diagnostics(hass, e)
+    assert "TempUnit:1" in diag["recent_log"][0]

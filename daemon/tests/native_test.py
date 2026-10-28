@@ -353,8 +353,50 @@ def _t_24v_heat_and_off(d: Daemon) -> None:
     assert dt < 3.5, dt
 
 
-V24_TESTS = [(_t_24v_heat_and_off, lambda: v24()), (_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
+def _t_24v_setpoint_only(d: Daemon) -> None:
+    for body in ({"mode": "cool"}, {"fan": "auto"}, {"mode": "heat", "temperature": 70}):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and "only setpoints" in r["error"], (body, r)
+    for body in ({"temperature": 70}, {"target_temp_low": 66, "target_temp_high": 72}, {"target_temp_high": 75}):
+        code, r = d.post("/api/control", body)                          # passes validation (no IPC here)
+        assert all(w not in r.get("error", "") for w in ("only setpoints", "between", "deadband")), (body, r)
+    code, r = d.post("/api/control", {"target_temp_low": 73})           # high kept from Thigh:74
+    assert "deadband" in r["error"], r
+
+
+def _t_24v_celsius_setpoint(d: Daemon) -> None:
+    code, r = d.post("/api/control", {"temperature": 70})               # 70 C: out of range
+    assert code == 400 and "between 16 and 30 C" in r["error"], r
+    code, r = d.post("/api/control", {"temperature": 70, "unit": "F"})  # 70 F -> 21 C
+    assert "between" not in r.get("error", ""), r
+
+
+V24_TESTS = [(_t_24v_setpoint_only, lambda: v24()),
+             (_t_24v_celsius_setpoint, lambda: v24().replace("cpTempUnit:1", "cpTempUnit:0")),
+             (_t_24v_heat_and_off, lambda: v24()), (_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
              (_t_meiju_comm_mode_only, lambda: UI.format(ts=ts(), db=4, zm=1).replace("comm_mode=0", "comm_mode=1"))]
+
+
+# Firmware tina.tangly.20260821.063106 (issue #8): same AHU3 lines at new source lines, plus a humidity line
+AHU3_0821 = ("{ts} user.info dev_app: rac_dev_send_dev_state] <I>(dev_app/src/dev_ui_state.c:<743>)rac: "
+             "RAC_DEV_AHU3_STATE, power: 1, mode: 4, op_mode =255 auto_state =4, temp_unit =1, temp_set: 72.000000, "
+             "wind_speed: 3\n"
+             "{ts} user.info dev_app: rac_dev_send_dev_state] <I>(dev_app/src/dev_ui_state.c:<744>)rac: "
+             "RAC_DEV_AHU3_STATE, fan_state: 1,stop_fan_reach_temp=255,elec_heat: 0, elec_heat_only:0, "
+             "compressor_state =1 FP=0\n"
+             "{ts} user.info dev_app: rac_dev_send_dev_state] <I>(dev_app/src/dev_ui_state.c:<745>)rac: "
+             "RAC_DEV_AHU3_STATE, temp_zone_control: 0, temp_zone_lower_limit =68.000000  temp_zone_upper_limit=79.000000\n"
+             "{ts} user.info dev_app: rac_dev_send_dev_state] <I>(dev_app/src/dev_ui_state.c:<746>)rac: "
+             "RAC_DEV_AHU3_STATE, humi_ctrl:0, humi_ctrl_fun:1, humi_set:0\n")
+
+
+def _t_firmware_0821(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["comm_mode"] == "communicating" and s["mode"] == "heat" and s["setpoint"] == 72, s
+    assert s["compressor_running"] and s["dev"]["zone_control"] == 0 and s["dev"]["zone_upper"] == 79, s
+
+
+V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts())))
 
 
 def main() -> int:

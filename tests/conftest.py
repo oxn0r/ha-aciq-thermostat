@@ -68,6 +68,9 @@ def mock_deployer():
               AsyncMock(return_value="already running")) as ens,
         patch("custom_components.aciq_thermostat.deployer.Deployer.sync_clock",
               AsyncMock(return_value={"offset_s": 0.3, "corrected": False})),
+        patch("custom_components.aciq_thermostat.deployer.Deployer.recent_log",
+              AsyncMock(return_value=["2026-10-28 08:49:43.643 user.info dev_app: parse_tlv_24v_cmd] "
+                                      "rac: TempUnit:1,temperature:73"])),
         patch("custom_components.aciq_thermostat.deployer.Deployer.read_versions",
               AsyncMock(return_value={"screen_firmware": "LD:1.2.60", "hardware": "V4.3",
                                       "indoor_unit_firmware": "00AC000111171171000066111008"})),

@@ -41,6 +41,7 @@ class FakeThermostat:
     output_rules: list[str] = field(default_factory=list)  # "-A OUTPUT ..." lines (incl. foreign rules)
     ahu3_lines: int = 5                                  # 0 + v24_lines > 0 = conventional 24 V wiring
     v24_lines: int = 0
+    log_lines: list[str] = field(default_factory=list)  # what the recent-log grep returns
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
@@ -123,6 +124,8 @@ class FakeAdb:
             return "1668"
         if "/proc/sysvipc/msg" in cmd:
             return "12"
+        if "tail -n" in cmd and "lastlog" in cmd:
+            return "\n".join(t.log_lines)
         if "RAC_DEV_AHU3_STATE" in cmd:
             return str(t.ahu3_lines)
         if "dev_24v_decorder" in cmd:

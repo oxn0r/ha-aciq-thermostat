@@ -25,6 +25,8 @@ from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeout
 from .const import (
     DAEMON_DEVICE_PATH,
     DAEMON_FILENAME,
+    LOG_PATTERN,
+    READ_ONLY_FIRMWARE,
     VERIFIED_DEV_APP_SHA256,
     VERIFIED_FIRMWARE,
 )
@@ -171,12 +173,14 @@ class Deployer:
 
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
                 res.firmware = fw or None
-                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE,
-                                        f"{fw or 'unknown'} (verified: {VERIFIED_FIRMWARE})"))
+                read_only = fw in READ_ONLY_FIRMWARE
+                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or read_only,
+                                        f"{fw or 'unknown'} (verified: {VERIFIED_FIRMWARE})"
+                                        + (": supported read-only" if read_only else "")))
 
                 sha = (await self._sh(dev, "sha256sum /usr/bin/dev_app 2>/dev/null")).split(" ")[0]
-                res.checks.append(Check("dev_app_build", sha == VERIFIED_DEV_APP_SHA256,
-                                        f"sha256 {sha[:16] or 'missing'}…"))
+                want = READ_ONLY_FIRMWARE[fw] if read_only else VERIFIED_DEV_APP_SHA256
+                res.checks.append(Check("dev_app_build", sha == want, f"sha256 {sha[:16] or 'missing'}…"))
 
                 pid = await self._sh(dev, "pidof dev_app")
                 res.checks.append(Check("dev_app_running", pid.isdigit(), f"pid {pid or 'none'}"))
@@ -448,6 +452,17 @@ class Deployer:
                 return f"started pid {new_pid}" + (" (pushed new build)" if pushed else "")
             finally:
                 await dev.close()
+
+    async def recent_log(self, lines: int) -> list[str]:
+        """Recent state/command lines from the thermostat log (both rotation files, read-only)."""
+        async with self._lock:
+            dev = await self._session()
+            try:
+                out = await self._sh(dev, f"cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null"
+                                          f" | grep -E '{LOG_PATTERN}' | tail -n {int(lines)}", timeout=20)
+            finally:
+                await dev.close()
+        return [ln.rstrip() for ln in out.splitlines() if ln.strip()]
 
     async def read_versions(self) -> dict[str, str]:
         """Version strings shown in the ACiQ app (read-only)."""

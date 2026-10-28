@@ -1260,6 +1260,18 @@ void handle_request(int client_fd) {
                         success = 0;
                     }
 
+                    /* Conventional 24 V (issue #5): the app's setpoint keys (0x41+0x03, 0x54/0x55) reach
+                       parse_tlv_24v_cmd -> set24VTemp like on HBS; mode and fan aren't verified there yet */
+                    if (success && (mode[0] || fan[0])) {
+                        struct thermostat_state cur;
+                        get_state(&cur);
+                        if (cur.comm_mode == 2) {
+                            snprintf(error_msg, sizeof(error_msg),
+                                     "24 V thermostat: only setpoints can be changed (mode and fan aren't verified yet)");
+                            success = 0;
+                        }
+                    }
+
                     /* Fan speed is locked by the UI/app outside some modes (e.g. auto).
                        Only allow it where verified; mode = requested mode or current one. */
                     /* Validate everything before sending anything (no half-applied commands) */
@@ -1280,7 +1292,8 @@ void handle_request(int client_fd) {
                     if (success && (temperature > 0 || zlow > 0 || zhigh > 0)) {
                         struct thermostat_state cur;
                         get_state(&cur);
-                        therm_c = cur.have_dev_state && cur.dev_temp_unit == 0;
+                        therm_c = cur.comm_mode == 2 ? cur.v24_unit == 0
+                                                     : cur.have_dev_state && cur.dev_temp_unit == 0;
                         char unit[4] = "";
                         json_str(body_start, "unit", unit, sizeof(unit));
                         int req_c = unit[0] ? (unit[0] == 'C' || unit[0] == 'c') : therm_c;
@@ -1296,8 +1309,10 @@ void handle_request(int client_fd) {
                         if (success && (zlow > 0 || zhigh > 0)) {
                             /* One side given: keep the other at its current value (the app
                                always sends both) */
-                            zlow = zlow > 0 ? to_therm_unit(zlow, req_c, therm_c) : (int)(cur.zone_lower + 0.5);
-                            zhigh = zhigh > 0 ? to_therm_unit(zhigh, req_c, therm_c) : (int)(cur.zone_upper + 0.5);
+                            float cl = cur.comm_mode == 2 ? cur.v24_low : cur.zone_lower;
+                            float ch = cur.comm_mode == 2 ? cur.v24_high : cur.zone_upper;
+                            zlow = zlow > 0 ? to_therm_unit(zlow, req_c, therm_c) : (int)(cl + 0.5);
+                            zhigh = zhigh > 0 ? to_therm_unit(zhigh, req_c, therm_c) : (int)(ch + 0.5);
                             /* dev_app doesn't enforce the deadband for these keys; keep at least
                                the thermostat's own deadband (2 F / 1 C until it is seen) */
                             int gap = cur.deadband > 0 ? cur.deadband : 2;

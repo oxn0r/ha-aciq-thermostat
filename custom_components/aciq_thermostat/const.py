@@ -9,6 +9,8 @@ CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
 CONF_SYNC_CLOCK = "sync_clock"
+# 24 V units (issue #5): allow setpoint commands while modes stay read-only (opt-in test)
+CONF_V24_SETPOINT_CONTROL = "v24_setpoint_control"
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
@@ -43,6 +45,17 @@ CLOCK_MAX_OFFSET = 2.0
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"
 VERIFIED_DEV_APP_SHA256 = "63ff55d09f90b0ef896ed5cedccffac50e6a1a4b47efd220e2cb3235ffcabeb3"
+# Builds seen to log the same state lines, set up read-only (the daemon keeps control and
+# dev_app memory reads off on them): firmware -> dev_app sha256
+READ_ONLY_FIRMWARE = {
+    "tina.tangly.20260821.063106": "b5a264939ec23c97e9e386cc07b89aca0fd2e91ce49dd91083631a8854f550c4",  # #8
+}
+
+# Diagnostics: recent dev_app/meiju state and command lines from the thermostat log (no
+# msmart lines, which carry network details)
+LOG_PATTERN = ("RAC_DEV_AHU3_STATE|parse_tlv|set24V|setTemp|msmart_cmd_ctrl|process_24v_cmd_a3|"
+               "kv_parse|page_ui_refresh_background|thermostat_ui_dev_state_response")
+LOG_TAIL_LINES = 1500
 
 # Bundled daemon (custom_components/aciq_thermostat/bin/)
 DAEMON_FILENAME = "thermostat_api"

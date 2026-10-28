@@ -8,6 +8,8 @@ import pytest
 
 from custom_components.aciq_thermostat.deployer import Deployer, DeployError
 
+from custom_components.aciq_thermostat.const import READ_ONLY_FIRMWARE, VERIFIED_DEV_APP_SHA256
+
 from .fake_adb import BUNDLED_SHA, FakeThermostat
 
 
@@ -33,6 +35,22 @@ async def test_preflight_wrong_firmware(thermo: FakeThermostat) -> None:
     res = await Deployer("h", 5555).preflight()
     assert not res.passed
     assert "❌ firmware" in res.summary()
+
+
+async def test_preflight_read_only_firmware(thermo: FakeThermostat) -> None:
+    thermo.firmware = "tina.tangly.20260821.063106"                  # issue #8
+    thermo.dev_app_sha = READ_ONLY_FIRMWARE[thermo.firmware]
+    res = await Deployer("h", 5555).preflight()
+    assert res.passed and "supported read-only" in res.summary()
+    thermo.dev_app_sha = VERIFIED_DEV_APP_SHA256                       # a different dev_app on that build
+    assert not (await Deployer("h", 5555).preflight()).passed
+
+
+async def test_recent_log(thermo: FakeThermostat) -> None:
+    thermo.log_lines = ["a RAC_DEV_AHU3_STATE, power: 1", "b set24VTemp] Ts =72"]
+    assert await Deployer("h", 5555).recent_log(10) == thermo.log_lines
+    cmd = thermo.commands[-1] if thermo.commands else ""
+    assert not cmd or ("/tmp/.lastlog.old /tmp/.lastlog" in cmd and "tail -n 10" in cmd)
 
 
 async def test_preflight_reports_24v_mode(thermo: FakeThermostat) -> None:

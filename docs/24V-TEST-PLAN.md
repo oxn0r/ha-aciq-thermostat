@@ -5,7 +5,7 @@ room temperature, what the thermostat is calling for, and its wiring. It sends *
 control action returns an error. The goal is to confirm the mapping so control can be added safely.
 
 ## Install
-1. Install **v1.1.0b3** (or newer): in HACS enable *Show beta versions* for this repository and update, or copy
+1. Install **v1.1.0b4** (or newer): in HACS enable *Show beta versions* for this repository and update, or copy
    `custom_components/aciq_thermostat` from the release zip into `/config/custom_components/`.
 2. Restart Home Assistant. The daemon on the thermostat updates itself.
 3. You should see a Repairs note, *24 V thermostat: read-only test build*. That's expected.
@@ -55,9 +55,20 @@ that the card's action says heating / cooling / fan / idle at the right times.
    the **phone app** (not the screen): the setpoint in Heat and in Cool, the Auto low and high, then each mode
    (Off, Heat, Cool, Auto, Fan, Aux/Emergency heat), about 30 s apart, noting the time of each.
 
+**E. Setpoint control (v1.1.0b4, opt-in)**
+Modes and fan stay read-only; only setpoints are sent, with the same commands as the app.
+1. In the integration's options (⚙ *Configure*), turn on **24 V thermostats: allow setpoint changes (test)**.
+2. In **Heat**, change the setpoint from Home Assistant by 1–2° up, then back. Check the thermostat screen follows
+   within a few seconds.
+3. Same in **Cool**.
+4. In **Auto**, change the low, then the high, from Home Assistant.
+5. Within a few minutes of the last step, download diagnostics. Each command is in `commands` with `readback`
+   (`applied` / `not_applied`), and `recent_log` has the thermostat's own lines for it (`parse_tlv_24v_cmd`,
+   `set24VTemp`, `Thigh` / `Tlow`). No ADB capture is needed for this.
+
 ## Report back on issue #5
 1. The **diagnostics download** (Settings → Devices & services → ACiQ Thermostat → ⋮ → Download diagnostics), taken
-   right after part B.
+   within a few minutes of the steps, **attached as a file** (it's too long to paste since it includes `recent_log`).
 2. Your timestamps, and for each run when the equipment actually started and stopped.
 3. Anything on the card that disagreed with the screen or the equipment.
 4. The Home Assistant log lines containing `aciq_thermostat` (debug log if you enabled it).
@@ -70,7 +81,8 @@ that the card's action says heating / cooling / fan / idle at the right times.
 | O/B direction with this wiring (`OB_dir=2`: on in heat) | B1 vs B2 |
 | What `op_mode`, `heat_mode`, `wind_fun` and the fan setting mean | B5, and whether they ever change |
 | Does the thermostat really power a cool call (Y, G)? | D1 |
-| The exact commands the app sends for setpoints and modes | D3 |
+| The exact commands the app sends for setpoints and modes | D3 (done: same keys as on communicating units) |
+| Do Home Assistant's setpoint commands land like the app's? | E |
 
-Control will then be added one function at a time (setpoint first, then Heat / Cool / Off), each tested with you
-watching, using the thermostat's own 24 V commands (`set24VTemp`, `set24VMode`).
+Setpoints come first (part E). Heat / Cool / Off / Fan / Aux follow once E checks out and cooling has run, each
+tested with you watching.

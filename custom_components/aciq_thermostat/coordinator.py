@@ -37,6 +37,7 @@ from .const import (
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
     CONF_SYNC_CLOCK,
+    CONF_V24_SETPOINT_CONTROL,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
     DEFAULT_PORT,
@@ -92,7 +93,9 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m" if h else (f"{m}m{sec:02d}s" if m else f"{sec}s")
 
 
-RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK})
+RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK, CONF_V24_SETPOINT_CONTROL})
+# What a 24 V unit accepts with setpoint control on (the daemon refuses mode and fan there too)
+V24_SETPOINT_KEYS = frozenset({"temperature", "target_temp_low", "target_temp_high", "unit"})
 
 
 def explain_deploy(detail: dict[str, Any], uptime: float | None, trigger: str) -> str:
@@ -599,10 +602,18 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.commands.append({"time": dt_util.utcnow().isoformat(timespec="seconds"),
                               "payload": payload, "result": result, **fields})
 
+    def v24_setpoint_control(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_V24_SETPOINT_CONTROL, False))
+
     async def async_control(self, payload: dict[str, Any]) -> None:
-        if (self.data or {}).get("read_only"):
+        data = self.data or {}
+        if data.get("read_only") and not (self.v24_setpoint_control() and set(payload) <= V24_SETPOINT_KEYS):
             self._command(payload, "blocked_read_only")
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="read_only_24v")
+        if data.get("control_enabled") is False:
+            self._command(payload, "blocked_firmware")
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="control_unverified",
+                                     translation_placeholders={"firmware": str(data.get("firmware"))})
         try:
             async with asyncio.timeout(10):
                 async with self.session.post(self.base + API_CONTROL, json=payload) as resp:
@@ -626,6 +637,23 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Sent %s to %s; daemon replied %s", payload, self.host, body.strip())
         await asyncio.sleep(REFRESH_DELAY)
         await self.async_refresh()
+        if data.get("read_only") and "temperature" in payload:
+            await self._verify_v24_setpoint(float(payload["temperature"]))
+
+    async def _verify_v24_setpoint(self, want: float) -> None:
+        """24 V test control: confirm set24VTemp took the setpoint (unit conversion is the
+        daemon's, so compare only when HA sent the thermostat's own unit)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + RANGE_VERIFY_TIMEOUT
+        while (self.data or {}).get("setpoint") != want and loop.time() < deadline:
+            await asyncio.sleep(1)
+            await self.async_refresh()
+        got = (self.data or {}).get("setpoint")
+        self.commands[-1].update(readback="applied" if got == want else "not_applied", reported=got)
+        if got != want:
+            _LOGGER.warning("24 V thermostat on %s did not report setpoint %g (reports %s)", self.host, want, got)
+        else:
+            _LOGGER.info("24 V thermostat on %s took setpoint %g", self.host, want)
 
     def auto_range(self) -> tuple[float | None, float | None]:
         dev = (self.data or {}).get("dev", {})

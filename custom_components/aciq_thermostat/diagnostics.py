@@ -8,7 +8,7 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import AciqConfigEntry
-from .const import VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
+from .const import LOG_TAIL_LINES, VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
 from .deployer import DeployError, bundled_daemon_sha256
 
 # users post this download publicly on GitHub issues
@@ -21,6 +21,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         preflight = await c.async_run_preflight()
     except DeployError as err:
         preflight = {"error": str(err)}
+    try:
+        recent_log: list[str] | dict[str, str] = await c.deployer.recent_log(LOG_TAIL_LINES)
+    except DeployError as err:
+        recent_log = {"error": str(err)}
     return async_redact_data({
         "host": c.host,
         "options": dict(entry.options),
@@ -49,4 +53,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "allowed_ips": c.allowed_ips(),
         "preflight": preflight,
         "state": c.data,
+        # state and command lines from the last ~10 min of the thermostat log, so testers
+        # don't need ADB: make the changes, then download diagnostics within a few minutes
+        "recent_log": recent_log,
     }, TO_REDACT)

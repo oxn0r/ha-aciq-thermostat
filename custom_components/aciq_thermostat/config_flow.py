@@ -27,6 +27,7 @@ from .const import (
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
     CONF_SYNC_CLOCK,
+    CONF_V24_SETPOINT_CONTROL,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
     DEFAULT_NAME,
@@ -203,6 +204,8 @@ class AciqOptionsFlow(OptionsFlow):
                 vol.Optional(CONF_EXTRA_ALLOWED_IPS, default=opts.get(CONF_EXTRA_ALLOWED_IPS, "")): str,
                 vol.Optional(CONF_BLOCK_EGRESS, default=opts.get(CONF_BLOCK_EGRESS, False)): bool,
                 vol.Optional(CONF_SYNC_CLOCK, default=opts.get(CONF_SYNC_CLOCK, True)): bool,
+                vol.Optional(CONF_V24_SETPOINT_CONTROL,
+                             default=opts.get(CONF_V24_SETPOINT_CONTROL, False)): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
