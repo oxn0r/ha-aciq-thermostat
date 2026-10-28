@@ -95,7 +95,7 @@ def _fmt_duration(seconds: float) -> str:
 
 RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK, CONF_V24_SETPOINT_CONTROL})
 # What a 24 V unit accepts with setpoint control on (the daemon refuses mode and fan there too)
-V24_SETPOINT_KEYS = frozenset({"temperature", "target_temp_low", "target_temp_high", "unit"})
+V24_CONTROL_KEYS = frozenset({"mode", "temperature", "target_temp_low", "target_temp_high", "unit"})  # no fan
 
 
 def explain_deploy(detail: dict[str, Any], uptime: float | None, trigger: str) -> str:
@@ -602,12 +602,12 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.commands.append({"time": dt_util.utcnow().isoformat(timespec="seconds"),
                               "payload": payload, "result": result, **fields})
 
-    def v24_setpoint_control(self) -> bool:
+    def v24_control(self) -> bool:
         return bool(self.config_entry.options.get(CONF_V24_SETPOINT_CONTROL, False))
 
     async def async_control(self, payload: dict[str, Any]) -> None:
         data = self.data or {}
-        if data.get("read_only") and not (self.v24_setpoint_control() and set(payload) <= V24_SETPOINT_KEYS):
+        if data.get("read_only") and not (self.v24_control() and set(payload) <= V24_CONTROL_KEYS):
             self._command(payload, "blocked_read_only")
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="read_only_24v")
         if data.get("control_enabled") is False:
@@ -637,23 +637,39 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Sent %s to %s; daemon replied %s", payload, self.host, body.strip())
         await asyncio.sleep(REFRESH_DELAY)
         await self.async_refresh()
-        if data.get("read_only") and "temperature" in payload:
-            await self._verify_v24_setpoint(float(payload["temperature"]))
+        if data.get("read_only"):
+            want: dict[str, Any] = {}
+            if "mode" in payload:
+                want["mode"] = payload["mode"]
+            if "temperature" in payload:
+                want["setpoint"] = float(payload["temperature"])
+            if want:
+                await self._verify_v24(want)
 
-    async def _verify_v24_setpoint(self, want: float) -> None:
-        """24 V test control: confirm set24VTemp took the setpoint (unit conversion is the
-        daemon's, so compare only when HA sent the thermostat's own unit)."""
+    async def _verify_v24(self, want: dict[str, Any]) -> None:
+        """24 V test control: confirm set24VMode / set24VTemp took the mode and setpoint (unit
+        conversion is the daemon's, so the setpoint is compared only in the thermostat's own unit)."""
+        def reported() -> dict[str, Any]:
+            return {k: (self.data or {}).get(k) for k in want}
+
         loop = asyncio.get_running_loop()
         deadline = loop.time() + RANGE_VERIFY_TIMEOUT
-        while (self.data or {}).get("setpoint") != want and loop.time() < deadline:
+        while reported() != want and loop.time() < deadline:
             await asyncio.sleep(1)
             await self.async_refresh()
-        got = (self.data or {}).get("setpoint")
-        self.commands[-1].update(readback="applied" if got == want else "not_applied", reported=got)
+        got = reported()
+        record: dict[str, Any] = {"readback": "applied" if got == want else "not_applied"}
+        if "setpoint" in got:
+            record["reported"] = got["setpoint"]
+        if "mode" in got:
+            record["reported_mode"] = got["mode"]
+        self.commands[-1].update(record)
+        def fmt(d: dict[str, Any]) -> str:
+            return ", ".join(f"{k} {v:g}" if isinstance(v, float) else f"{k} {v}" for k, v in d.items())
         if got != want:
-            _LOGGER.warning("24 V thermostat on %s did not report setpoint %g (reports %s)", self.host, want, got)
+            _LOGGER.warning("24 V thermostat on %s did not report %s (reports %s)", self.host, fmt(want), fmt(got))
         else:
-            _LOGGER.info("24 V thermostat on %s took setpoint %g", self.host, want)
+            _LOGGER.info("24 V thermostat on %s took %s", self.host, fmt(want))
 
     def auto_range(self) -> tuple[float | None, float | None]:
         dev = (self.data or {}).get("dev", {})

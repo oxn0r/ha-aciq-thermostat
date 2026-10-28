@@ -25,6 +25,7 @@ from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeout
 from .const import (
     DAEMON_DEVICE_PATH,
     DAEMON_FILENAME,
+    LOG_EXCLUDE,
     LOG_PATTERN,
     READ_ONLY_FIRMWARE,
     VERIFIED_DEV_APP_SHA256,
@@ -459,7 +460,7 @@ class Deployer:
             dev = await self._session()
             try:
                 out = await self._sh(dev, f"cat /tmp/.lastlog.old /tmp/.lastlog 2>/dev/null"
-                                          f" | grep -E '{LOG_PATTERN}' | tail -n {int(lines)}", timeout=20)
+                                          f" | grep -E '{LOG_PATTERN}' | grep -v '{LOG_EXCLUDE}' | tail -n {int(lines)}", timeout=20)
             finally:
                 await dev.close()
         return [ln.rstrip() for ln in out.splitlines() if ln.strip()]

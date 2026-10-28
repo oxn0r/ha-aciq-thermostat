@@ -50,7 +50,8 @@ async def test_recent_log(thermo: FakeThermostat) -> None:
     thermo.log_lines = ["a RAC_DEV_AHU3_STATE, power: 1", "b set24VTemp] Ts =72"]
     assert await Deployer("h", 5555).recent_log(10) == thermo.log_lines
     cmd = thermo.commands[-1] if thermo.commands else ""
-    assert not cmd or ("/tmp/.lastlog.old /tmp/.lastlog" in cmd and "tail -n 10" in cmd)
+    assert not cmd or ("/tmp/.lastlog.old /tmp/.lastlog" in cmd and "tail -n 10" in cmd
+                       and "grep -v 'cpTempUnit:'" in cmd)
 
 
 async def test_preflight_reports_24v_mode(thermo: FakeThermostat) -> None:

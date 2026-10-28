@@ -1260,14 +1260,22 @@ void handle_request(int client_fd) {
                         success = 0;
                     }
 
-                    /* Conventional 24 V (issue #5): the app's setpoint keys (0x41+0x03, 0x54/0x55) reach
-                       parse_tlv_24v_cmd -> set24VTemp like on HBS; mode and fan aren't verified there yet */
+                    /* Conventional 24 V (issue #5): the app sends the same setpoint keys (0x41+0x03,
+                       0x54/0x55) and mode frames (0x02 tmpState, 0x67 aux -> cpEmerHeat, 0x01 power) as on
+                       HBS; parse_tlv_24v_cmd -> set24VMode/set24VTemp (app capture 2026-10-28, setpoints
+                       tested from HA 2026-10-28). One fan wire (G): no fan speed. */
                     if (success && (mode[0] || fan[0])) {
                         struct thermostat_state cur;
                         get_state(&cur);
-                        if (cur.comm_mode == 2) {
+                        if (cur.comm_mode == 2 && fan[0]) {
                             snprintf(error_msg, sizeof(error_msg),
-                                     "24 V thermostat: only setpoints can be changed (mode and fan aren't verified yet)");
+                                     "24 V thermostat: fan speed can't be set (single fan output)");
+                            success = 0;
+                        } else if (cur.comm_mode == 2 && strcmp(mode, "emergency_heat") == 0 &&
+                                   strcmp(cur.v24_aux, "1") != 0) {
+                            snprintf(error_msg, sizeof(error_msg),
+                                     "24 V thermostat: no aux heat configured (Aaux=%s)",
+                                     cur.v24_aux[0] ? cur.v24_aux : "unknown");
                             success = 0;
                         }
                     }

@@ -193,11 +193,25 @@ async def test_24v_setpoint_control_opt_in(hass, aioclient_mock, mock_deployer, 
     posts = [c for c in aioclient_mock.mock_calls if c[0] == "POST"]
     assert posts[-1][2] == {"temperature": 70, "unit": "F"}
     assert e.runtime_data.commands[-1]["readback"] == "applied" and "took setpoint 70" in caplog.text
-    for service, data in (("set_hvac_mode", {"hvac_mode": "cool"}), ("turn_off", {})):   # modes stay read-only
-        with pytest.raises(HomeAssistantError) as err:
-            await hass.services.async_call("climate", service, {"entity_id": CLIMATE, **data}, blocking=True)
-        assert err.value.translation_key == "read_only_24v", service
+    with pytest.raises(HomeAssistantError) as err:                                      # no fan speed on 24 V
+        await e.runtime_data.async_control({"fan": "auto"})
+    assert err.value.translation_key == "read_only_24v"
     assert len([c for c in aioclient_mock.mock_calls if c[0] == "POST"]) == len(posts)
+
+
+async def test_24v_mode_control_opt_in(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    e = await _setup(hass, aioclient_mock, _24v(state, ui_mode=2), **{CONF_V24_SETPOINT_CONTROL: True})
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": CLIMATE, "hvac_mode": "cool"},
+                                   blocking=True)
+    assert [c for c in aioclient_mock.mock_calls if c[0] == "POST"][-1][2] == {"mode": "cool"}
+    cmd = e.runtime_data.commands[-1]
+    assert (cmd["readback"], cmd["reported_mode"]) == ("applied", "cool") and "took mode cool" in caplog.text
+    with patch("custom_components.aciq_thermostat.coordinator.RANGE_VERIFY_TIMEOUT", 0):
+        await hass.services.async_call("climate", "turn_off", {"entity_id": CLIMATE}, blocking=True)
+    cmd = e.runtime_data.commands[-1]
+    assert cmd["payload"] == {"mode": "off"} and (cmd["readback"], cmd["reported_mode"]) == ("not_applied", "cool")
+    assert "did not report mode off (reports mode cool)" in caplog.text
 
 
 async def test_24v_setpoint_not_reported(hass, aioclient_mock, mock_deployer, state, caplog) -> None:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0b5 — 2026-10-28 (pre-release)
+### Added
+- **24 V mode control, opt-in test** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): the option, now
+  *24 V thermostats: allow control (test)*, also allows Off, Heat, Cool, Auto, Fan only and the *Emergency heat*
+  preset. The app's capture showed the same mode keys as on communicating units (mode, aux → `cpEmerHeat`, power), so
+  the daemon sends the same frames. The integration checks the thermostat reports the new mode (`readback`,
+  `reported_mode`). Setpoint control from 1.1.0b4 was confirmed on the reporter's unit.
+### Changed
+- Daemon: on 24 V units, fan speed is refused (single fan output), and Emergency heat is refused when no aux heat is
+  configured (`Aaux=0`).
+- `recent_log` in diagnostics leaves out the 24 V room/setpoint line the thermostat logs every second (its values are
+  in the state), so it covers much more than the last few minutes.
+
 ## 1.1.0b4 — 2026-10-28 (pre-release)
 ### Added
 - **24 V setpoint control, opt-in test** ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): with

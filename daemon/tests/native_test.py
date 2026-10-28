@@ -353,15 +353,24 @@ def _t_24v_heat_and_off(d: Daemon) -> None:
     assert dt < 3.5, dt
 
 
-def _t_24v_setpoint_only(d: Daemon) -> None:
-    for body in ({"mode": "cool"}, {"fan": "auto"}, {"mode": "heat", "temperature": 70}):
+def _t_24v_control(d: Daemon) -> None:
+    for body in ({"fan": "auto"}, {"mode": "cool", "fan": "low"}):
         code, r = d.post("/api/control", body)
-        assert code == 400 and "only setpoints" in r["error"], (body, r)
-    for body in ({"temperature": 70}, {"target_temp_low": 66, "target_temp_high": 72}, {"target_temp_high": 75}):
+        assert code == 400 and "fan speed" in r["error"], (body, r)
+    for body in ({"mode": "cool"}, {"mode": "off"}, {"mode": "fan_only"}, {"mode": "emergency_heat"},
+                 {"mode": "heat", "temperature": 70}, {"temperature": 70},
+                 {"target_temp_low": 66, "target_temp_high": 72}, {"target_temp_high": 75}):
         code, r = d.post("/api/control", body)                          # passes validation (no IPC here)
-        assert all(w not in r.get("error", "") for w in ("only setpoints", "between", "deadband")), (body, r)
+        assert all(w not in r.get("error", "") for w in ("24 V", "between", "deadband", "mode must")), (body, r)
     code, r = d.post("/api/control", {"target_temp_low": 73})           # high kept from Thigh:74
     assert "deadband" in r["error"], r
+
+
+def _t_24v_no_aux(d: Daemon) -> None:
+    code, r = d.post("/api/control", {"mode": "emergency_heat"})
+    assert code == 400 and "no aux heat" in r["error"], r
+    code, r = d.post("/api/control", {"mode": "heat"})
+    assert "24 V" not in r.get("error", ""), r
 
 
 def _t_24v_celsius_setpoint(d: Daemon) -> None:
@@ -371,7 +380,7 @@ def _t_24v_celsius_setpoint(d: Daemon) -> None:
     assert "between" not in r.get("error", ""), r
 
 
-V24_TESTS = [(_t_24v_setpoint_only, lambda: v24()),
+V24_TESTS = [(_t_24v_control, lambda: v24()), (_t_24v_no_aux, lambda: v24().replace("Aaux=1", "Aaux=0")),
              (_t_24v_celsius_setpoint, lambda: v24().replace("cpTempUnit:1", "cpTempUnit:0")),
              (_t_24v_heat_and_off, lambda: v24()), (_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
              (_t_meiju_comm_mode_only, lambda: UI.format(ts=ts(), db=4, zm=1).replace("comm_mode=0", "comm_mode=1"))]

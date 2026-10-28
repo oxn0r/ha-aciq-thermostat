@@ -56,6 +56,7 @@ READ_ONLY_FIRMWARE = {
 LOG_PATTERN = ("RAC_DEV_AHU3_STATE|parse_tlv|set24V|setTemp|msmart_cmd_ctrl|process_24v_cmd_a3|"
                "kv_parse|page_ui_refresh_background|thermostat_ui_dev_state_response")
 LOG_TAIL_LINES = 1500
+LOG_EXCLUDE = "cpTempUnit:"   # 24 V room/setpoint line, every second; its values are in the state
 
 # Bundled daemon (custom_components/aciq_thermostat/bin/)
 DAEMON_FILENAME = "thermostat_api"
