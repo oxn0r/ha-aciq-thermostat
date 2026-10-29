@@ -5,6 +5,8 @@
 - **ACiQ System Card**, bundled: an animated schematic of the heat pump, refrigerant lines, coil, gas furnace, blower,
   ducts and house. The integration serves it at `/aciq_thermostat/aciq-system-card.js` and loads it in every
   dashboard, so no Lovelace resource or separate HACS frontend repo is needed. A `?v=` query busts the cache on each release.
+- README images and GIFs of the card (all four states in one image and one GIF, light and dark), generated from the
+  card's code by `tools/card_media`.
 - Card picker entry with a visual editor (device, title, optional power and filter sensors) and a default config
   that picks the first ACiQ thermostat.
 - The card finds entities through the device's entity registry (by translation key), so it works whatever the device

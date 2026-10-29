@@ -47,3 +47,34 @@ for theme in ("light", "dark"):
         g.paste(im, ((n % 2) * w, (n // 2) * h))
     g.save(out / f"system-card{sfx}.png", optimize=True)
     print(f"system-card{sfx}.png", g.size, (out / f"system-card{sfx}.png").stat().st_size // 1024, "KB")
+
+
+def grid_gif(theme, name, width=1200):
+    """All four states in one looping GIF, laid out like the system-card.png still (idle is static)."""
+    states = ("heat", "cool", "furnace", "idle")
+    paths = {k: sorted(src.glob(f"anim_{theme}_{k}_*.png")) for k in states}
+    every = cropped([p for k in states for p in paths[k]], theme, 18)  # one crop box: cells line up
+    seqs, i = {}, 0
+    for k in states:
+        seqs[k] = every[i:i + len(paths[k])]
+        i += len(paths[k])
+    n = max(len(s) for s in seqs.values())
+    w, h = every[0].size
+    frames = []
+    for f in range(n):
+        g = Image.new("RGB", (w * 2, h * 2), BG[theme])
+        for j, k in enumerate(states):
+            g.paste(seqs[k][f % len(seqs[k])], ((j % 2) * w, (j // 2) * h))
+        frames.append(g.resize((width, round(width * g.height / g.width)), Image.Resampling.LANCZOS))
+    fw, fh = frames[0].size
+    sample = Image.new("RGB", (fw, fh * 4))
+    for j, f in enumerate(frames[:: n // 4][:4]):
+        sample.paste(f, (0, fh * j))
+    pal = sample.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+    q = [f.quantize(palette=pal, dither=Image.Dither.NONE) for f in frames]
+    q[0].save(out / name, save_all=True, append_images=q[1:], duration=50, loop=0, optimize=True)
+    print(name, f"{fw}x{fh}", (out / name).stat().st_size // 1024, "KB")
+
+
+grid_gif("light", "system-card-all.gif")
+grid_gif("dark", "system-card-all-dark.gif")

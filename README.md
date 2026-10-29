@@ -186,14 +186,17 @@ Equipment entities go **unavailable** if that data can't be read (for example, o
 
 The integration includes the **ACiQ System Card**, an animated schematic of a ducted heat pump system with gas furnace backup: outdoor unit, refrigerant lines, indoor coil on the furnace, blower, ducts and the house.
 
+![ACiQ System Card: heat pump heating, cooling, gas furnace and idle](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-all.gif)
+
+![The four states as a still image](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card.png)
+
+<details><summary>Dark theme, and one state per image</summary>
+
+![System card, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-all-dark.gif)
+
 | Heat pump heating | Cooling | Gas furnace |
 |---|---|---|
 | ![Heating](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-heat.gif) | ![Cooling](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-cool.gif) | ![Gas furnace](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-furnace.gif) |
-
-<details><summary>All states, light and dark theme</summary>
-
-![System card, light theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card.png)
-![System card, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-dark.png)
 
 </details>
 
