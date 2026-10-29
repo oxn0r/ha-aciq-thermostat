@@ -41,7 +41,7 @@ async def test_preflight_control_firmware(thermo: FakeThermostat) -> None:
     thermo.firmware = "tina.tangly.20260821.063106"                  # issue #8
     thermo.dev_app_sha = CONTROL_FIRMWARE[thermo.firmware]
     res = await Deployer("h", 5555).preflight()
-    assert res.passed and "supported, no equipment data" in res.summary()
+    assert res.passed and ": supported" in res.summary()
     thermo.dev_app_sha = VERIFIED_DEV_APP_SHA256                       # a different dev_app on that build
     assert not (await Deployer("h", 5555).preflight()).passed
 

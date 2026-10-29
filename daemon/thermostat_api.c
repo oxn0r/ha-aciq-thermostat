@@ -73,6 +73,7 @@
 #ifndef DEV_MSG_PATH
 #define DEV_MSG_PATH "/tmp/dev_msg"
 #endif
+/* DEV_MEM_FILE (tests only): read g_self_state from this file instead of dev_app's memory */
 #define FTOK_PROJ_ID 1
 #define EVENT_MSMART_FRAME 196608  /* 0x30000 */
 #define MSMART_FRAME_SIZE 29
@@ -156,8 +157,8 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
                                                 .heating_max = -1, .cooling_min = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
-/* Control only (no dev_app memory reads): same command parser and keys as VERIFIED_FIRMWARE,
-   from the app's commands on that build (issue #8, 2026-10-28). The integration checks dev_app's hash. */
+/* Same command parser and keys as VERIFIED_FIRMWARE, from the app's commands on that build
+   (issue #8, 2026-10-28). The integration checks dev_app's hash. */
 #define CONTROL_FIRMWARE "tina.tangly.20260821.063106"
 static char firmware_id[64] = "unknown";
 static int control_enabled = 0;
@@ -494,12 +495,15 @@ static void read_firmware_id(void) {
 }
 
 /*
- * Equipment data read (read-only) from dev_app memory: g_self_state (dev_state_t,
- * 312 bytes) at a fixed address in this non-PIE build. Offsets from dev_app DWARF;
- * meanings verified 2026-10-19 with supervised furnace and heat-pump runs.
- * Only used on VERIFIED_FIRMWARE, and only if the layout canary matches.
+ * Equipment data read (read-only) from dev_app memory: g_self_state (dev_state_t) at a
+ * fixed address in these non-PIE builds. Offsets from dev_app DWARF; meanings verified
+ * 2026-10-19 with supervised furnace and heat-pump runs. CONTROL_FIRMWARE's dev_state_t
+ * (572 bytes) keeps the first 312 bytes unchanged and only appends members (DWARF from
+ * issue #8's debug report, 2026-10-29, taken while heating). Only read on these two
+ * builds, and only if the layout canary matches.
  */
 #define G_SELF_STATE_ADDR 0x5fa3c
+#define G_SELF_STATE_ADDR_0821 0x62c1c
 #define G_SELF_STATE_SIZE 312
 struct equipment {
     int ok;
@@ -508,6 +512,9 @@ struct equipment {
     int fault[4], fault_state, protect_state;
     /* current settings (state_setting), used when no AHU3 log line was seen yet */
     int set_power, set_mode, set_wind, set_temp, set_aux, set_aux_alone, set_unit;
+    /* state_running bits from the indoor unit's 0xC0 frame that a defrost cycle should flip
+       (no defrost field exists in dev_app); reported raw until a defrost is captured */
+    int four_valve, outdoor_fan_low, outdoor_fan_high, compressor_on, oil_return, outdoor_fan_speed;
 };
 
 static pid_t find_pid(const char *name) {
@@ -541,6 +548,9 @@ static time_t dev_mem_next_scan = 0;
 
 static int dev_mem_open(void) {
     if (dev_mem_fd >= 0) return dev_mem_fd;
+#ifdef DEV_MEM_FILE
+    return dev_mem_fd = open(DEV_MEM_FILE, O_RDONLY);
+#endif
     time_t now = time(NULL);
     if (now < dev_mem_next_scan) return -1;
     dev_mem_next_scan = now + 10;
@@ -555,13 +565,16 @@ static int dev_mem_open(void) {
 
 static void read_equipment(struct equipment *eq) {
     memset(eq, 0, sizeof(*eq));
-    if (strcmp(firmware_id, VERIFIED_FIRMWARE) != 0) return;
+    off_t addr;
+    if (strcmp(firmware_id, VERIFIED_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR;
+    else if (strcmp(firmware_id, CONTROL_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR_0821;
+    else return;
     unsigned char b[G_SELF_STATE_SIZE];
     ssize_t n = -1;
     for (int attempt = 0; attempt < 2 && n != (ssize_t)sizeof(b); attempt++) {
         int fd = dev_mem_open();
         if (fd < 0) return;
-        n = pread(fd, b, sizeof(b), G_SELF_STATE_ADDR);
+        n = pread(fd, b, sizeof(b), addr);
         if (n != (ssize_t)sizeof(b)) {          /* dev_app restarted: reopen once */
             close(dev_mem_fd);
             dev_mem_fd = -1;
@@ -590,6 +603,12 @@ static void read_equipment(struct equipment *eq) {
     eq->set_temp = b[98];
     eq->set_unit = b[99];            /* state_setting.TsUnit: 1 = F, 0 = C */
     eq->set_aux = b[107];
+    eq->oil_return = b[142];
+    eq->four_valve = b[144];
+    eq->outdoor_fan_low = b[145];
+    eq->outdoor_fan_high = b[146];
+    eq->compressor_on = b[147];
+    eq->outdoor_fan_speed = b[302] | (b[303] << 8);
 }
 
 static void fill_from_memory(struct thermostat_state *state) {
@@ -626,12 +645,15 @@ static int build_equipment_json(const struct equipment *eqp, char *buf, size_t s
         "{\"available\": true, \"outdoor_temp\": %s, \"indoor_unit_t1\": %s, "
         "\"indoor_coil_temp\": %s, \"outdoor_coil_temp\": %s, \"compressor_hz\": %d, "
         "\"furnace_on\": %s, \"blower_on\": %s, \"blower_speed\": %d, "
-        "\"fault_codes\": [%d, %d, %d, %d], \"fault_state\": %d, \"protect_state\": %d}",
+        "\"fault_codes\": [%d, %d, %d, %d], \"fault_state\": %d, \"protect_state\": %d, "
+        "\"defrost_signals\": {\"four_valve\": %d, \"outdoor_fan_low\": %d, \"outdoor_fan_high\": %d, "
+        "\"compressor_on\": %d, \"oil_return\": %d, \"outdoor_fan_speed\": %d}}",
         raw_temp_f(eq.t4, a, sizeof(a)), raw_temp_f(eq.t1, b2, sizeof(b2)),
         raw_temp_f(eq.t2a, c, sizeof(c)), raw_temp_f(eq.t3, d, sizeof(d)),
         eq.compressor_hz, eq.furnace_on ? "true" : "false", eq.blower_on ? "true" : "false",
         eq.blower_speed, eq.fault[0], eq.fault[1], eq.fault[2], eq.fault[3],
-        eq.fault_state, eq.protect_state);
+        eq.fault_state, eq.protect_state, eq.four_valve, eq.outdoor_fan_low, eq.outdoor_fan_high,
+        eq.compressor_on, eq.oil_return, eq.outdoor_fan_speed);
 }
 
 /*
@@ -679,7 +701,7 @@ static long daemon_start_uptime = -1;
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
     char sig[512];
-    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
              hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
              st->zone_control, st->zone_lower, st->zone_upper,
@@ -689,7 +711,8 @@ static void state_id(const struct thermostat_state *st, const struct equipment *
              st->v24_power, st->v24_kv_mode, st->v24_kv_emer, st->ui_auto_state, st->ui_fan_state,
              eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
-             eq->fault_state, eq->protect_state, control_enabled);
+             eq->fault_state, eq->protect_state, control_enabled,
+             eq->four_valve, eq->outdoor_fan_low, eq->outdoor_fan_high, eq->compressor_on, eq->oil_return);
     uint32_t h = 2166136261u;                       /* FNV-1a */
     for (const char *c = sig; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; }
     snprintf(out, 9, "%08x", (unsigned)h);
@@ -706,7 +729,7 @@ static void snapshot(struct thermostat_state *st, struct equipment *eq, char id[
 static int build_state_json_from(const struct thermostat_state *stp, const struct equipment *eq,
                                  const char *sid, char *buf, size_t bufsize) {
     const struct thermostat_state state = *stp;
-    char equip_json[512], v24_json[896];
+    char equip_json[768], v24_json[896];
     build_equipment_json(eq, equip_json, sizeof(equip_json));
     if (!state.v24_seen) {
         snprintf(v24_json, sizeof(v24_json), "{\"seen\": false}");

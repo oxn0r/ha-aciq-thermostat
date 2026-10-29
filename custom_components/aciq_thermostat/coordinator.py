@@ -148,6 +148,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.events: deque[dict[str, Any]] = deque(maxlen=20)   # outages + deploys, for diagnostics
         self.commands: deque[dict[str, Any]] = deque(maxlen=10)  # control commands + results, for diagnostics
         self.debug_report: dict[str, Any] | None = None           # last "Collect debug report", for diagnostics
+        self.debug_report_time: datetime | None = None
         self.v24_events: deque[dict[str, Any]] = deque(maxlen=60)  # 24 V state changes, for diagnostics
         self._v24_last: dict[str, Any] | None = None
         self.long_poll_supported: bool | None = None
@@ -360,6 +361,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Pre-flight plus the deep debug report (read-only), kept for diagnostics."""
         preflight = await self.async_run_preflight()
         self.debug_report = {"preflight": preflight, **await self.deployer.debug_report()}
+        self.debug_report_time = dt_util.utcnow()
+        self.async_update_listeners()                 # "Last debug report" shows it right away
         return self.debug_report
 
     async def async_run_preflight(self) -> dict[str, Any]:

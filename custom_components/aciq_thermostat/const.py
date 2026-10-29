@@ -44,7 +44,7 @@ CLOCK_MAX_OFFSET = 2.0
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"
 VERIFIED_DEV_APP_SHA256 = "63ff55d09f90b0ef896ed5cedccffac50e6a1a4b47efd220e2cb3235ffcabeb3"
 # Other builds with the same state lines and command parser (app commands compared in the log):
-# control works, but the daemon keeps dev_app memory reads (equipment data) off. firmware -> dev_app sha256
+# control and equipment data (the daemon has each build's g_self_state address). firmware -> dev_app sha256
 CONTROL_FIRMWARE = {
     "tina.tangly.20260821.063106": "b5a264939ec23c97e9e386cc07b89aca0fd2e91ce49dd91083631a8854f550c4",  # #8
 }

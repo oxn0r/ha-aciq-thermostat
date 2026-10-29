@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks! One file usually has everything needed to support a new build, so no ADB commands are needed:
-        - **The thermostat is set up:** on its device page press **Collect debug report**, then ⋮ → **Download diagnostics**, and attach the file below.
+        - **The thermostat is set up:** on its device page press **Collect debug report** and wait about 10 seconds, until *Last debug report* shows the time (a notification also appears under the bell). Then ⋮ → **Download diagnostics**, and attach the file below.
         - **Setup failed at pre-flight:** the integration saved `aciq_thermostat_debug_report_<date>.json` in your Home Assistant `/config` folder. Attach that file.
 
         Both are read-only and leave out IP addresses and the serial number.

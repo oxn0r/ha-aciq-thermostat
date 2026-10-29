@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (1.1.3)
+### Added
+- **Equipment data on firmware `tina.tangly.20260821.063106`** (#8): outdoor temperature, indoor and outdoor coil,
+  compressor frequency, blower, furnace and fault codes. Its `dev_app` keeps the verified build's state layout at a
+  new address (from #8's debug report, taken while heating; values checked against the unit's own readings).
+- Defrost groundwork (#9): the **Compressor frequency** sensor's attributes carry the raw indoor-unit bits a defrost
+  should flip (reversing valve, outdoor fan, compressor, oil return), on both supported firmware builds, so a defrost
+  cycle shows up in history. No defrost sensor yet.
+- **Last debug report** diagnostic sensor: the time *Collect debug report* last finished, so the device page confirms
+  the press (Home Assistant shows no pop-up for a button). Attributes: pre-flight result, failed checks, whether
+  `dev_app` has debug info and whether the state block's layout was found.
+### Changed
+- README and issue forms say how long the report takes and where its confirmation appears (the sensor and the
+  notification bell).
+
 ## 1.1.2 — 2026-10-28
 ### Added
 - **Collect debug report** button (replaces *Run pre-flight checks*): runs pre-flight and a read-only deep report

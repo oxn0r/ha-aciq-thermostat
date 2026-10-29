@@ -190,6 +190,11 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
                           device_class=SensorDeviceClass.TIMESTAMP,
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=lambda d, eq: None, coord_fn=lambda c: c.daemon_start_time),
+    # when "Collect debug report" last ran (this session): confirms the press, attributes summarize it
+    AciqSensorDescription(key="last_debug_report", translation_key="last_debug_report",
+                          device_class=SensorDeviceClass.TIMESTAMP,
+                          entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: None, coord_fn=lambda c: c.debug_report_time),
 )
 
 
@@ -232,6 +237,9 @@ class AciqSensor(AciqEntity, SensorEntity):
         key = self.entity_description.key
         if key == "indoor_unit_firmware":
             return self.coordinator.versions or None
+        if key == "compressor_frequency":
+            # raw indoor-unit bits a defrost cycle should flip, kept in history until a defrost is mapped
+            return self.equipment.get("defrost_signals") or None
         if key in ("outputs_24v", "wiring_24v"):
             v = self.data.get("v24") or {}
             out = self.data.get("v24_outputs") or {}
@@ -256,6 +264,17 @@ class AciqSensor(AciqEntity, SensorEntity):
                     "last_correction": _iso(c.get("last_correction")),
                     "last_correction_offset_s": c.get("last_correction_offset_s"),
                     "sync_enabled": self.coordinator.sync_clock_enabled}
+        if key == "last_debug_report":
+            r = self.coordinator.debug_report
+            if not r:
+                return None
+            pre = r.get("preflight") or {}
+            dev_app = r.get("dev_app") or {}
+            return {"preflight_passed": pre.get("passed"),
+                    "failed_checks": [c["key"] for c in pre.get("checks", []) if not c.get("ok")],
+                    "dev_app_debug_info": bool(dev_app.get("debug_sections")) if "debug_sections" in dev_app else None,
+                    "state_layout_found": r.get("state_layout") is not None,
+                    "next_step": "Download diagnostics and attach the file to your GitHub issue"}
         if key == "daemon_started":
             d = self.coordinator.last_deploy_detail
             if not d:

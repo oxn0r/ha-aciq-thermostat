@@ -73,7 +73,7 @@ Want the details? Everything below explains how it works, what's verified, and h
 | Device | Status |
 |---|---|
 | ACiQ / Midea **TL04-1**, Tina Linux build `tina.tangly.20260314.152301`, communicating (HA/HB) wiring to a Midea indoor unit | **Verified**: full control and equipment data |
-| Same thermostat on build `tina.tangly.20260821.063106` (e.g. Midea-branded) | **Supported** since 1.1.1 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): control, mode, setpoints, temperature, humidity, compressor; no equipment data (outdoor unit, furnace). Each command is checked against what the thermostat reports |
+| Same thermostat on build `tina.tangly.20260821.063106` (e.g. Midea-branded) | **Supported** since 1.1.1 ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)): control, mode, setpoints, temperature, humidity; equipment data (outdoor unit, coils, compressor, blower, furnace, faults) since 1.1.3. Each command is checked against what the thermostat reports |
 | Same thermostat on another firmware build | New setups stop at pre-flight (open an issue with its output); a thermostat that updates itself after setup keeps readings, with control blocked (see [Safety](#safety)) |
 | TL04-1 wired conventionally (24 V R/C/W/Y/G), e.g. Carrier KSACN1701AAA | **Supported** since 1.1.0 ([#5](https://github.com/oxn0r/ha-aciq-thermostat/issues/5)): mode (Off, Heat, Cool, Auto, Fan only, Emergency heat), setpoint, Auto low/high, room temperature and the 24 V outputs it drives. No fan speed (single fan output) and no equipment data. Tested on a heat pump with hydronic aux heat; other 24 V setups, please report |
 | Other Midea / NetHome / Cooper & Hunter thermostats | Not supported |
@@ -144,14 +144,15 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
-| **Compressor frequency** | sensor (Hz) | inverter speed; 0 = off |
+| **Compressor frequency** | sensor (Hz) | inverter speed; 0 = off. Attributes: raw indoor-unit bits for mapping defrost ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)) |
 | Blower stage | sensor | 0 off, 1 low … 4 (high stages seen with the furnace) |
 | Setpoint · Mode · Fan setting | sensor | |
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
 | Power · Emergency heat | binary_sensor | |
-| Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download |
+| Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download (takes ~10 s; the page shows no pop-up) |
+| Last debug report | diagnostic | when *Collect debug report* last finished; attributes: pre-flight result, failed checks, whether `dev_app` has debug info |
 | Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Clock offset · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
 | Auto setpoint type · Auto heat setpoint · Auto cool setpoint · Deadband | diagnostic | *One setpoint* or *Heat/cool range*; the heat/cool setpoints are shown only while Auto holds a range |
 
@@ -276,7 +277,9 @@ command log, recent thermostat log lines, and the debug report if one was collec
 
 ### Supporting a new firmware or reporting a problem
 One file is meant to be enough, without ADB commands or back and forth:
-1. **Thermostat set up:** on its device page press **Collect debug report**, then ⋮ → **Download diagnostics**.
+1. **Thermostat set up:** on its device page press **Collect debug report**. It takes about 10 seconds and shows no
+   pop-up; when it's done, *Last debug report* shows the time and a notification appears under the **bell**
+   (Notifications) in the sidebar. Then ⋮ → **Download diagnostics**.
    **Setup failed at pre-flight:** the integration already saved `/config/aciq_thermostat_debug_report_<date>.json`.
 2. [Open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml)
    (or a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml)) and attach the file.

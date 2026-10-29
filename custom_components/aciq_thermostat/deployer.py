@@ -209,7 +209,7 @@ class Deployer:
                 other = fw in CONTROL_FIRMWARE
                 res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or other,
                                         f"{fw or 'unknown'} (verified: {VERIFIED_FIRMWARE})"
-                                        + (": supported, no equipment data" if other else "")))
+                                        + (": supported" if other else "")))
 
                 sha = (await self._sh(dev, "sha256sum /usr/bin/dev_app 2>/dev/null")).split(" ")[0]
                 want = CONTROL_FIRMWARE[fw] if other else VERIFIED_DEV_APP_SHA256

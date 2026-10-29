@@ -88,6 +88,8 @@ async def test_entities_from_live_fixture(hass: HomeAssistant, aioclient_mock, m
     assert c.attributes.get("fan_mode") is None  # fan locked in auto
     assert hass.states.get("sensor.thermostat_outdoor_temperature").state == str(state["equipment"]["outdoor_temp"])
     assert hass.states.get("binary_sensor.thermostat_furnace").state == "off"
+    comp = hass.states.get("sensor.thermostat_compressor_frequency")
+    assert comp.attributes["four_valve"] == 0 and comp.attributes["outdoor_fan_speed"] == 0  # defrost capture
     assert hass.states.get("sensor.thermostat_mode").state == "auto"
     assert hass.states.get("binary_sensor.thermostat_fault").state == "off"
 

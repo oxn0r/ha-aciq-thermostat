@@ -145,6 +145,9 @@ async def test_debug_report_button(hass, aioclient_mock, mock_deployer, state) -
         await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},
                                        blocking=True)
     assert "all pre-flight checks passed" in note.call_args.args[1] and "bug_report.yml" in note.call_args.args[1]
+    last = hass.states.get("sensor.thermostat_last_debug_report")
+    assert last.state not in ("unknown", "unavailable") and last.attributes["preflight_passed"] is True
+    assert last.attributes["failed_checks"] == [] and last.attributes["state_layout_found"] is False
     d = await async_get_config_entry_diagnostics(hass, e)
     assert d["debug_report"]["preflight"]["passed"] and d["debug_report"]["dev_app"]["type"] == "EXEC"
     from custom_components.aciq_thermostat.deployer import Check
@@ -152,6 +155,7 @@ async def test_debug_report_button(hass, aioclient_mock, mock_deployer, state) -
     await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},
                                    blocking=True)
     assert e.runtime_data.debug_report["preflight"]["passed"] is False
+    assert hass.states.get("sensor.thermostat_last_debug_report").attributes["failed_checks"] == ["firmware"]
     pre.side_effect = DeployError("x")
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},

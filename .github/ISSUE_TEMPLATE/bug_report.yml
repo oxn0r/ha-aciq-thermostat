@@ -27,7 +27,7 @@ body:
     attributes:
       label: Diagnostics
       description: >-
-        Device page → **Collect debug report** (optional, adds build details), then ⋮ → **Download diagnostics**,
+        Device page → **Collect debug report** (optional, adds build details; wait until *Last debug report* shows the time), then ⋮ → **Download diagnostics**,
         right after the problem (the thermostat's own log only keeps a few minutes). Attach the file here.
   - type: textarea
     id: logs

@@ -108,6 +108,9 @@
       },
       "wiring_24v": {
         "default": "mdi:connection"
+      },
+      "last_debug_report": {
+        "default": "mdi:bug-check-outline"
       }
     },
     "binary_sensor": {

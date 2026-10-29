@@ -47,6 +47,7 @@
             0
         ],
         "fault_state": 0,
-        "protect_state": 0
+        "protect_state": 0,
+        "defrost_signals": {"four_valve": 0, "outdoor_fan_low": 0, "outdoor_fan_high": 0, "compressor_on": 0, "oil_return": 0, "outdoor_fan_speed": 0}
     }
 }

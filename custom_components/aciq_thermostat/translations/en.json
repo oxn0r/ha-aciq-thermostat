@@ -203,6 +203,9 @@
       },
       "wiring_24v": {
         "name": "24 V wiring"
+      },
+      "last_debug_report": {
+        "name": "Last debug report"
       }
     },
     "binary_sensor": {

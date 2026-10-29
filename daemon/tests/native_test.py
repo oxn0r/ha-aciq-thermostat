@@ -31,7 +31,8 @@ def ts() -> str:
 
 
 class Daemon:
-    def __init__(self, initial_log: str | None = None, firmware: str = "tina.tangly.20260314.152301") -> None:
+    def __init__(self, initial_log: str | None = None, firmware: str = "tina.tangly.20260314.152301",
+                 mem: tuple[int, bytes] | None = None) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="tapi-"))
         self.log, self.old = self.dir / "lastlog", self.dir / "lastlog.old"
         (self.dir / "uptime").write_text("1234.56 999.00\n")
@@ -41,6 +42,12 @@ class Daemon:
         self.bin = self.dir / "tapi"
         defs = {"LOG_FILE": self.log, "LOG_FILE_OLD": self.old, "UPTIME_FILE": self.dir / "uptime",
                 "OS_RELEASE_FILE": self.dir / "release", "DEV_MSG_PATH": self.dir / "nomsg"}
+        if mem:                                     # sparse file standing in for dev_app's memory
+            addr, data = mem
+            with open(self.dir / "mem", "wb") as f:
+                f.seek(addr)
+                f.write(data)
+            defs["DEV_MEM_FILE"] = self.dir / "mem"
         cmd = ["cc", "-O1", "-Wall", "-o", str(self.bin), str(SRC)]
         cmd += [f'-D{k}="{v}"' for k, v in defs.items()]
         subprocess.run(cmd, check=True)
@@ -403,7 +410,7 @@ def _t_firmware_0821(d: Daemon) -> None:
     s = d.get("/api/state")
     assert s["comm_mode"] == "communicating" and s["mode"] == "heat" and s["setpoint"] == 72, s
     assert s["compressor_running"] and s["dev"]["zone_control"] == 0 and s["dev"]["zone_upper"] == 79, s
-    assert s["control_enabled"] and s["equipment"]["available"] is False, s     # control, no memory reads
+    assert s["control_enabled"] and s["equipment"]["available"] is False, s     # no dev_app memory here
     code, r = d.post("/api/control", {"mode": "cool", "fan": "high", "temperature": 70})
     assert "control disabled" not in r.get("error", ""), r                      # passes the gate (no IPC here)
 
@@ -415,6 +422,37 @@ def _t_unknown_firmware(d: Daemon) -> None:
     assert code == 400 and "control disabled" in r["error"], r
 
 
+# g_self_state from issue #8's debug report (first 312 bytes; serial already zeroed), heat pump heating
+STATE_0821 = bytes.fromhex(
+    "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000020600000200000000"
+    "0000000001000000010000000001000001010000000000000000000000000000000000000100000000010404040348013c015601"
+    "340000000000000000000001000100010001000000ff00000404030001485265672e006400000000000000010000000000000000"
+    "00000000000000000000e001010000002004000000000000000000000000010100010000000001000000ff000028340000000000"
+    "00000000010100000101010001ff0000000016080001010100000100030000000000000000000000000000000000000000000000"
+    "000000000000000000000001ffffffffffffffffffffffffff01ffff20041000151e03061c0148006b0000001a00000000000000")
+
+
+def _t_equipment_0821(d: Daemon) -> None:
+    eq = d.get("/api/state")["equipment"]
+    assert eq["available"], eq
+    assert (eq["outdoor_temp"], eq["indoor_unit_t1"], eq["indoor_coil_temp"], eq["outdoor_coil_temp"]) == \
+        (42.8, 69.8, 86.9, 37.4), eq
+    assert eq["compressor_hz"] == 26 and eq["blower_on"] and eq["blower_speed"] == 72, eq
+    assert not eq["furnace_on"] and eq["fault_codes"] == [0, 0, 0, 0], eq
+    assert eq["defrost_signals"] == {"four_valve": 0, "outdoor_fan_low": 0, "outdoor_fan_high": 0,
+                                     "compressor_on": 1, "oil_return": 0, "outdoor_fan_speed": 0}, eq
+
+
+def _t_equipment_canary(d: Daemon) -> None:
+    assert d.get("/api/state")["equipment"]["available"] is False   # TsMin/TsMax not 60/86: wrong layout
+
+
+V24_TESTS.append((_t_equipment_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106",
+                  (0x62c1c, STATE_0821)))
+V24_TESTS.append((_t_equipment_0821, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
+                  "tina.tangly.20260314.152301", (0x5fa3c, STATE_0821)))      # same bytes on the verified build
+V24_TESTS.append((_t_equipment_canary, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106",
+                  (0x5fa3c, STATE_0821)))                                     # verified build's address: no data
 V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
 V24_TESTS.append((_t_unknown_firmware, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20270101.000000"))
 
