@@ -377,7 +377,7 @@ Official tiers are awarded only to core integrations. Highlights:
 pip install pytest-homeassistant-custom-component "adb-shell[async]>=0.4.4" mypy pytest-cov
 pytest --ignore=tests/live --cov                 # unit tests (>95 % coverage required)
 mypy                                             # strict typing
-node --test tests/frontend/                      # system card logic
+node --test tests/frontend/card.test.mjs         # system card logic
 ACIQ_LIVE_HOST=<ip> pytest tests/live -s         # end-to-end against a real thermostat
 daemon/build.sh                                  # rebuild the daemon (official zig 0.17.0, Linux x86_64 = canonical)
 ```

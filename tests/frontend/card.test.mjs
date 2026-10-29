@@ -1,4 +1,4 @@
-// ACiQ System Card logic, without a browser: node --test tests/frontend/
+// ACiQ System Card logic, without a browser: node --test tests/frontend/card.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
