@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Card test</title>
+<style>
+ body{margin:0;padding:16px;font-family:Roboto,system-ui,sans-serif;background:var(--bg)}
+ .light{--bg:#fafafa;--primary-text-color:#212121;--secondary-text-color:#727272;--secondary-background-color:#e9e9ec;--divider-color:#c8c8cc;--primary-color:#03a9f4;--card-background-color:#fff}
+ .dark{--bg:#111;--primary-text-color:#e1e1e1;--secondary-text-color:#9b9b9b;--secondary-background-color:#282828;--divider-color:#474747;--primary-color:#03a9f4;--card-background-color:#1c1c1c}
+ .grid{display:grid;grid-template-columns:repeat(2,480px);gap:12px;padding:12px;background:var(--bg)}
+ ha-card{display:block;background:var(--card-background-color);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+ h3{grid-column:1/-1;margin:0;color:var(--primary-text-color);font-size:13px}
+</style></head><body>
+<div class="grid light" id="light"><h3>Light theme</h3></div>
+<div class="grid dark" id="dark"><h3>Dark theme</h3></div>
+<script>customElements.define("ha-card", class extends HTMLElement {});</script>
+<script src="aciq-system-card.js"></script><script src="capture.js"></script>
+<script>
+const n="family_room", dev="dev1";
+const tk={["climate."+n]:"thermostat"};
+for (const [s,t] of [["temperature","temperature"],["humidity","humidity"],["setpoint","setpoint"],["mode","mode"],["outdoor_temperature","outdoor_temperature"],["outdoor_coil_temperature","outdoor_coil_temperature"],["indoor_coil_temperature","indoor_coil_temperature"],["indoor_unit_t1_temperature","indoor_unit_t1"],["compressor_frequency","compressor_frequency"],["blower_stage","blower_stage"],["fault_codes","fault_codes"]]) tk[`sensor.${n}_${s}`]=t;
+for (const s of ["compressor","furnace","blower","fault"]) tk[`binary_sensor.${n}_${s}`]=s;
+const entities={}; for (const [id,t] of Object.entries(tk)) entities[id]={entity_id:id,device_id:dev,platform:"aciq_thermostat",translation_key:t};
+const S=(state,attributes={})=>({state:String(state),attributes});
+function hass(st){return {entities,states:{
+ ["climate."+n]:S(st.mode,{hvac_action:st.action}),[`sensor.${n}_temperature`]:S(st.room??70.4),[`sensor.${n}_humidity`]:S(41),[`sensor.${n}_setpoint`]:S(st.sp??70),[`sensor.${n}_mode`]:S(st.mode),
+ [`sensor.${n}_outdoor_temperature`]:S(st.out),[`sensor.${n}_outdoor_coil_temperature`]:S(st.ocoil),[`sensor.${n}_indoor_coil_temperature`]:S(st.coil),[`sensor.${n}_indoor_unit_t1_temperature`]:S(69),
+ [`sensor.${n}_compressor_frequency`]:S(st.hz??0),[`sensor.${n}_blower_stage`]:S(st.stage??0),[`binary_sensor.${n}_compressor`]:S(st.comp?"on":"off"),[`binary_sensor.${n}_furnace`]:S(st.furn?"on":"off"),
+ [`binary_sensor.${n}_blower`]:S(st.blow?"on":"off"),[`binary_sensor.${n}_fault`]:S("off"),[`sensor.${n}_fault_codes`]:S("none"),"sensor.furnace_filter_life_used":S(st.filter??42),"sensor.heat_pump_power":S(st.power??0)}};}
+const cases={
+ heat:{mode:"heat",action:"heating",comp:true,blow:true,hz:54,stage:4,coil:98,out:38,ocoil:30,power:2140},
+ cool:{mode:"cool",action:"cooling",comp:true,blow:true,hz:54,stage:4,coil:46,out:88,ocoil:101,sp:72,room:73.6,power:1650},
+ furnace:{mode:"heat",action:"heating",furn:true,blow:true,stage:4,coil:70,out:18,ocoil:15,filter:93},
+ idle:{mode:"heat",action:"idle",coil:69,out:45,ocoil:44,filter:100}};
+window.cards=[];
+for (const theme of ["light","dark"]) for (const [k,st] of Object.entries(cases)) {
+ const c=document.createElement("aciq-system-card");
+ // existing YAML on light, device lookup (no config) on dark
+ c.setConfig(theme==="light"?{prefix:"family_room",title:"HVAC system",entities:{filter:"sensor.furnace_filter_life_used",power:k==="furnace"||k==="idle"?null:"sensor.heat_pump_power"}}:{title:"HVAC system",entities:{filter:"sensor.furnace_filter_life_used",power:k==="furnace"||k==="idle"?null:"sensor.heat_pump_power"}});
+ c.hass=hass(st); document.getElementById(theme).appendChild(c); window.cards.push([theme,k,c]);
+}
+</script></body></html>

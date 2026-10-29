@@ -60,6 +60,7 @@ Want the details? Everything below explains how it works, what's verified, and h
 - [Entities](#entities)
 - [Actions, triggers and conditions](#actions-triggers-and-conditions)
 - [Data updates](#data-updates)
+- [System card](#system-card)
 - [Examples and use cases](#examples-and-use-cases)
 - [Known limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
@@ -180,6 +181,58 @@ poll handles outages and older daemons. The daemon reads:
 - the indoor/outdoor equipment state that `dev_app` keeps in memory. That state updates every few seconds from the HA/HB bus.
 
 Equipment entities go **unavailable** if that data can't be read (for example, on an unverified firmware).
+
+## System card
+
+The integration includes the **ACiQ System Card**, an animated schematic of a ducted heat pump system with gas furnace backup: outdoor unit, refrigerant lines, indoor coil on the furnace, blower, ducts and the house.
+
+| Heat pump heating | Cooling | Gas furnace |
+|---|---|---|
+| ![Heating](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-heat.gif) | ![Cooling](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-cool.gif) | ![Gas furnace](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-furnace.gif) |
+
+<details><summary>All states, light and dark theme</summary>
+
+![System card, light theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card.png)
+![System card, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-dark.png)
+
+</details>
+
+- The outdoor fan spins while the compressor runs, faster at higher compressor frequency.
+- Refrigerant lines turn red when heating and blue when cooling, with the flow reversing in cool.
+- A flame shows when the gas furnace is on, and the blower spins while it runs.
+- The house shows room temperature, setpoint and humidity. Chips show mode, blower stage, fault, and optionally power and filter use.
+- Tap any part to open that entity.
+
+**No Lovelace resource is needed.** The integration serves the card and loads it in every dashboard. After an update, reload the browser once to get the new card. Add it from the dashboard's card picker (*ACiQ System Card*, with a visual editor), or in YAML:
+
+```yaml
+type: custom:aciq-system-card
+title: HVAC system                  # optional
+device_id: 0123456789abcdef         # optional: needed only with more than one ACiQ thermostat
+entities:                           # optional overrides; null hides one
+  power: sensor.heat_pump_power     # power chip (any power sensor)
+  filter: sensor.furnace_filter_life_used   # filter chip, % used (warns at 90, red at 100)
+```
+
+The card finds the thermostat's entities through the device, so it works whatever the device or its entities are named. How each part is chosen, first match wins:
+1. `entities:` override for that part
+2. `device_id`
+3. `prefix:` (entity ids like `sensor.<prefix>_temperature`, as in earlier card versions)
+4. the only ACiQ thermostat, if there's exactly one
+5. prefix `family_room`
+
+Override keys: `climate`, `room`, `humidity`, `setpoint`, `mode`, `outdoor`, `outdoor_coil`, `indoor_coil`, `return_air`, `hz`, `blower_stage`, `compressor`, `furnace`, `blower`, `fault`, `fault_codes`, `power`, `filter`.
+
+The schematic shows what the equipment data reports, so it needs firmware with equipment data (see [Supported devices](#supported-devices)). Without it, the house and mode still show, and the equipment stays idle.
+
+### Upgrading from the standalone card
+
+If you loaded `aciq-system-card.js` yourself (for example from `/local/aciq/aciq-system-card.js`):
+1. Remove that dashboard resource (Settings → Dashboards → ⋮ → Resources).
+2. Delete the file from `/config/www/aciq/`.
+3. Keep your dashboard YAML. `type: custom:aciq-system-card` with `prefix:`, `title:` and `entities:` works unchanged.
+
+If the old resource stays, whichever copy loads first is used and the other is ignored, so nothing breaks. You just may not get the bundled version.
 
 ## Examples and use cases
 **Know which heat source is running (dual fuel):**
@@ -324,9 +377,12 @@ Official tiers are awarded only to core integrations. Highlights:
 pip install pytest-homeassistant-custom-component "adb-shell[async]>=0.4.4" mypy pytest-cov
 pytest --ignore=tests/live --cov                 # unit tests (>95 % coverage required)
 mypy                                             # strict typing
+node --test tests/frontend/                      # system card logic
 ACIQ_LIVE_HOST=<ip> pytest tests/live -s         # end-to-end against a real thermostat
 daemon/build.sh                                  # rebuild the daemon (official zig 0.17.0, Linux x86_64 = canonical)
 ```
+
+Card images in `docs/images/` are generated from the card's own code: see [tools/card_media](tools/card_media/README.md).
 
 ## Credits and license
 - **[jeffmcfadden/midea-thermostat](https://github.com/jeffmcfadden/midea-thermostat)**: ADB access, IPC protocol, temperature

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 DOMAIN = "aciq_thermostat"
+# ACiQ System Card (frontend/aciq-system-card.js), served by the integration
+CARD_URL = f"/{DOMAIN}/aciq-system-card.js"
+CARD_REGISTERED = f"{DOMAIN}_card_registered"
 
 CONF_ADB_PORT = "adb_port"
 CONF_AUTO_DEPLOY = "auto_deploy"

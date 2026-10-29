@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased (1.1.3)
+## Unreleased (1.2.0)
+### Added
+- **ACiQ System Card**, bundled: an animated schematic of the heat pump, refrigerant lines, coil, gas furnace, blower,
+  ducts and house. The integration serves it at `/aciq_thermostat/aciq-system-card.js` and loads it in every
+  dashboard, so no Lovelace resource or separate HACS frontend repo is needed. A `?v=` query busts the cache on each release.
+- Card picker entry with a visual editor (device, title, optional power and filter sensors) and a default config
+  that picks the first ACiQ thermostat.
+- The card finds entities through the device's entity registry (by translation key), so it works whatever the device
+  is named. The `prefix:` and `entities:` options from the standalone card keep working.
+
+## 1.1.3 — 2026-10-29
 ### Added
 - **Equipment data on firmware `tina.tangly.20260821.063106`** (#8): outdoor temperature, indoor and outdoor coil,
   compressor frequency, blower, furnace and fault codes. Its `dev_app` keeps the verified build's state layout at a

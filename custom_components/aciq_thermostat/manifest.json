@@ -1,6 +1,10 @@
 {
   "domain": "aciq_thermostat",
   "name": "ACiQ Thermostat (Local)",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "codeowners": [
     "@oxn0r"
   ],
@@ -22,5 +26,5 @@
   "requirements": [
     "adb-shell[async]>=0.4.4"
   ],
-  "version": "1.1.3"
+  "version": "1.2.0"
 }

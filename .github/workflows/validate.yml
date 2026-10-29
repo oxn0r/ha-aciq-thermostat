@@ -29,6 +29,8 @@ jobs:
         run: mypy
       - name: Tests (>=95% coverage)
         run: pytest -q --ignore=tests/live --cov --cov-fail-under=95
+      - name: System card tests
+        run: node --test tests/frontend/
   daemon:
     runs-on: ubuntu-latest
     steps:

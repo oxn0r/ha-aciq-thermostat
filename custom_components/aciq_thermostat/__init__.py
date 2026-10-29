@@ -7,13 +7,15 @@ running on the thermostat (deploying it over ADB if needed), then polls it.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.loader import async_get_integration
 
-from .const import CONF_AUTO_DEPLOY
+from .const import CARD_REGISTERED, CARD_URL, CONF_AUTO_DEPLOY, DOMAIN
 from .coordinator import AciqCoordinator
 from .deployer import DeployError
 
@@ -24,7 +26,25 @@ PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.BINARY_SENSOR, Platform
 type AciqConfigEntry = ConfigEntry[AciqCoordinator]
 
 
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the ACiQ System Card and load it in every dashboard (once, for all entries).
+    The ?v= query changes with each release, so browsers fetch the new card."""
+    if hass.data.get(CARD_REGISTERED):
+        return
+    hass.data[CARD_REGISTERED] = True
+    if getattr(hass, "http", None) is None:  # no web server (e.g. some test setups)
+        return
+    from homeassistant.components.frontend import add_extra_js_url
+    from homeassistant.components.http import StaticPathConfig
+
+    path = Path(__file__).parent / "frontend" / "aciq-system-card.js"
+    await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(path), True)])
+    version = (await async_get_integration(hass, DOMAIN)).version
+    add_extra_js_url(hass, f"{CARD_URL}?v={version}")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: AciqConfigEntry) -> bool:
+    await _async_register_card(hass)
     coordinator = AciqCoordinator(hass, entry)
 
     if entry.options.get(CONF_AUTO_DEPLOY, True):
