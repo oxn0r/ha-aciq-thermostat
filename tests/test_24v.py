@@ -167,7 +167,7 @@ async def test_24v_before_state_lines(hass, aioclient_mock, mock_deployer, state
     assert e.state is ConfigEntryState.SETUP_RETRY and "24 V thermostat hasn't reported" in e.reason
     issue = ir.async_get(hass).async_get_issue(DOMAIN, f"conventional_24v_{e.entry_id}")
     assert issue.translation_placeholders["summary"] == "no 24 V state lines yet"
-    assert issue.learn_more_url.endswith("/issues/5")
+    assert issue.learn_more_url.endswith("template=new_firmware.yml")
     caplog.clear()
     await hass.config_entries.async_reload(e.entry_id)                 # retry: no repeated warning
     await hass.async_block_till_done()

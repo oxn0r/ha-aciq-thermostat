@@ -131,21 +131,30 @@ async def test_buttons(hass, aioclient_mock, mock_deployer, state) -> None:
     pre, ens = mock_deployer
     await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_redeploy_daemon"}, blocking=True)
     assert ens.call_args.kwargs["force"] is True and ens.call_args.kwargs["block_egress"] is False
-    await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_run_pre_flight_checks"},
-                                   blocking=True)
     ens.side_effect = DeployError("x")
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_redeploy_daemon"},
                                        blocking=True)
+    assert hass.states.get("button.thermostat_run_pre_flight_checks") is None      # merged into the report
+
+
+async def test_debug_report_button(hass, aioclient_mock, mock_deployer, state) -> None:
+    e = await _setup(hass, aioclient_mock, state)
+    pre, _ = mock_deployer
+    with patch("custom_components.aciq_thermostat.button.persistent_notification.async_create") as note:
+        await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},
+                                       blocking=True)
+    assert "all pre-flight checks passed" in note.call_args.args[1] and "bug_report.yml" in note.call_args.args[1]
+    d = await async_get_config_entry_diagnostics(hass, e)
+    assert d["debug_report"]["preflight"]["passed"] and d["debug_report"]["dev_app"]["type"] == "EXEC"
+    from custom_components.aciq_thermostat.deployer import Check
+    pre.return_value = PreflightResult(checks=[Check("firmware", False, "other build")])
+    await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},
+                                   blocking=True)
+    assert e.runtime_data.debug_report["preflight"]["passed"] is False
     pre.side_effect = DeployError("x")
     with pytest.raises(HomeAssistantError):
-        await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_run_pre_flight_checks"},
-                                       blocking=True)
-    pre.side_effect = None
-    from custom_components.aciq_thermostat.deployer import Check
-    pre.return_value = PreflightResult(checks=[Check("firmware", False, "")])
-    with pytest.raises(HomeAssistantError):
-        await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_run_pre_flight_checks"},
+        await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_collect_debug_report"},
                                        blocking=True)
 
 

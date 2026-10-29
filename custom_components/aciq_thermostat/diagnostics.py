@@ -53,7 +53,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "allowed_ips": c.allowed_ips(),
         "preflight": preflight,
         "state": c.data,
-        # state and command lines from the last ~10 min of the thermostat log, so testers
-        # don't need ADB: make the changes, then download diagnostics within a few minutes
+        # state and command lines from the thermostat's own log window (1-3 minutes), so testers
+        # don't need ADB: make the changes, then download diagnostics right away
         "recent_log": recent_log,
+        # deep build details for supporting new firmware: press "Collect debug report" first
+        "debug_report": c.debug_report or "not collected (press the Collect debug report button, then download again)",
     }, TO_REDACT)

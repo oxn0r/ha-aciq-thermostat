@@ -7,7 +7,9 @@ created or changed.
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -26,12 +28,13 @@ from .const import (
     CONF_ADB_PORT,
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
-    CONF_SYNC_CLOCK,
     CONF_EXTRA_ALLOWED_IPS,
+    CONF_SYNC_CLOCK,
     DEFAULT_ADB_PORT,
     DEFAULT_NAME,
     DEFAULT_PORT,
     DOMAIN,
+    NEW_ISSUE_URL,
 )
 from .deployer import Deployer, DeployError, PreflightResult
 
@@ -85,12 +88,38 @@ class AciqConfigFlow(ConfigFlow, domain=DOMAIN):
             return None
         if not res.passed:
             errors["base"] = "checks_failed"
-            placeholders["checks"] = res.summary()
+            placeholders["checks"] = res.summary() + await self._save_debug_report(host, user_input, res)
             return None
         if not res.serial:
             errors["base"] = "no_serial"
             return None
         return res
+
+    async def _save_debug_report(self, host: str, user_input: dict[str, Any], res: PreflightResult) -> str:
+        """Unsupported build or setup: collect the read-only debug report into /config, so the
+        issue can carry everything needed to support it. Returns a line for the error text."""
+        try:
+            report = await Deployer(host, int(user_input[CONF_ADB_PORT]),
+                                    int(user_input.get(CONF_PORT, DEFAULT_PORT))).debug_report()
+            report = {"preflight": res.as_dict(), **report}
+        except DeployError as err:
+            _LOGGER.warning("Debug report for %s failed: %s", host, err)
+            return ""
+        name = f"aciq_thermostat_debug_report_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        path = self.hass.config.path(name)
+
+        def write() -> None:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=1)
+
+        try:
+            await self.hass.async_add_executor_job(write)
+        except OSError as err:
+            _LOGGER.warning("Could not save the debug report to %s: %s", path, err)
+            return ""
+        _LOGGER.info("Saved debug report for %s to %s", host, path)
+        return (f"\n\nA debug report was saved to `/config/{name}` (no IPs or serial). "
+                f"Please [open a new-firmware issue]({NEW_ISSUE_URL}) and attach it.")
 
     # ------------------------------------------------------------------ user
 

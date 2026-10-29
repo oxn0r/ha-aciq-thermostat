@@ -151,7 +151,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
 | Power · Emergency heat | binary_sensor | |
-| Redeploy daemon · Run pre-flight checks | button | maintenance |
+| Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download |
 | Firmware · Indoor unit firmware · Last thermostat boot · Daemon started · Clock offset · Local control enabled · Aux heat allowed · Wi-Fi signal · Indoor unit T1 · Auto state | diagnostic | *Aux heat allowed* = backup (furnace) heat permitted in the current mode (on in Heat), not burning; the last three are disabled by default |
 | Auto setpoint type · Auto heat setpoint · Auto cool setpoint · Deadband | diagnostic | *One setpoint* or *Heat/cool range*; the heat/cool setpoints are shown only while Auto holds a range |
 
@@ -265,13 +265,27 @@ packets/s to zero, and system load fell noticeably.
 | Symptom | Fix |
 |---|---|
 | Setup says *Could not reach the thermostat over ADB* | Check IP and port 5555 reachability from HA; disconnect any other `adb` session; power-cycle the thermostat if adbd is stuck |
-| *Pre-flight checks failed* | Firmware or device differs from the verified build. Open an issue with the pre-flight output |
-| Reporting a problem | Make the change on the thermostat (or in the app), then within a few minutes download diagnostics: it includes the thermostat's recent state and command log lines (`recent_log`), so no ADB capture is needed |
+| *Pre-flight checks failed* | Firmware or device differs from the verified build. A debug report was saved to `/config`: [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) and attach it (see [Supporting a new firmware](#supporting-a-new-firmware-or-reporting-a-problem)) |
+| Reporting a problem | Make the change, then right away press **Collect debug report** and download diagnostics, and attach the file to a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml). No ADB capture is needed |
 | Entities unavailable after a thermostat reboot | Wait ~1 minute (auto-redeploy) or press **Redeploy daemon** |
-| Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Open an issue so the new build can be verified |
+| Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Press **Collect debug report**, download diagnostics and [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) |
 | Commands ignored / 400 errors | See the HA log; the daemon reports why (validation, fan lock, firmware guard) |
 
-**Diagnostics:** device page → ⋮ → *Download diagnostics* (state, versions, pre-flight results, deploy log).
+**Diagnostics:** device page → ⋮ → *Download diagnostics* (state, versions, pre-flight results, deploy log,
+command log, recent thermostat log lines, and the debug report if one was collected).
+
+### Supporting a new firmware or reporting a problem
+One file is meant to be enough, without ADB commands or back and forth:
+1. **Thermostat set up:** on its device page press **Collect debug report**, then ⋮ → **Download diagnostics**.
+   **Setup failed at pre-flight:** the integration already saved `/config/aciq_thermostat_debug_report_<date>.json`.
+2. [Open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml)
+   (or a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml)) and attach the file.
+
+The debug report is read-only and leaves out IP addresses and the serial number. It contains the firmware and
+binary hashes, kernel and memory, the thermostat processes, the log window and which functions log how often, whether
+Home Assistant is behind NAT (Docker), and, from a copy of `dev_app` parsed in Home Assistant, its symbols, the layout
+of its state block (`g_self_state`) and a dump of that block with the serial zeroed. That's what's needed to map
+equipment data and new features (like defrost) on a new build. The `dev_app` binary itself isn't included.
 Debug logging:
 ```yaml
 logger:

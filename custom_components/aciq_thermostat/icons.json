@@ -167,8 +167,8 @@
       "redeploy": {
         "default": "mdi:cloud-upload-outline"
       },
-      "preflight": {
-        "default": "mdi:clipboard-check-outline"
+      "debug_report": {
+        "default": "mdi:bug-outline"
       }
     },
     "switch": {

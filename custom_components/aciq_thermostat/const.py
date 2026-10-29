@@ -103,5 +103,7 @@ PRESET_EMERGENCY_HEAT = "emergency_heat"
 
 ISSUE_FIRMWARE = "firmware_unverified"
 ISSUE_24V = "conventional_24v"
+NEW_ISSUE_URL = "https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml"
+BUG_ISSUE_URL = "https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml"
 ISSUE_24V_READ_ONLY = "read_only_24v"   # pre-1.1.0 test-build note, only deleted now
 ISSUE_DEPLOY = "deploy_failed"

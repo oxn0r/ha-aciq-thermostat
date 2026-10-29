@@ -38,14 +38,14 @@
     },
     "error": {
       "cannot_connect": "Could not reach the thermostat over ADB: {checks}",
-      "checks_failed": "Pre-flight checks failed — this firmware or setup has not been verified:\n\n{checks}",
+      "checks_failed": "Pre-flight checks failed: this firmware or setup hasn't been verified yet. Nothing was changed on the thermostat.\n\n{checks}",
       "invalid_host": "Enter an IPv4/IPv6 address",
       "no_serial": "The thermostat did not report a serial number."
     },
     "abort": {
       "already_configured": "This thermostat is already configured",
       "cannot_connect": "Could not reach the thermostat over ADB",
-      "not_supported": "This device is not a supported/verified TL04-1 thermostat",
+      "not_supported": "This device isn't a supported TL04-1 build yet. Add it manually (Settings → Devices & services → Add integration) to get a debug report to attach to a new-firmware issue.",
       "wrong_device": "That address belongs to a different thermostat (serial number mismatch)",
       "reconfigure_successful": "Connection updated"
     },
@@ -76,7 +76,7 @@
   "issues": {
     "firmware_unverified": {
       "title": "Thermostat firmware changed — local control disabled",
-      "description": "The thermostat reports firmware {firmware}, but control was verified only on {verified}. Readings still work; control commands are blocked until this firmware is verified (diagnostics downloads from it help)."
+      "description": "The thermostat reports firmware {firmware}, but control is verified only on {verified}. Readings still work; control is blocked until this build is verified.\n\nTo get it supported: on the thermostat's device page press **Collect debug report**, then ⋮ → **Download diagnostics**, and attach the file to a new-firmware issue (Learn more)."
     },
     "deploy_failed": {
       "title": "Could not start the thermostat API daemon",
@@ -84,7 +84,7 @@
     },
     "conventional_24v": {
       "title": "24 V thermostat: waiting for its state",
-      "description": "This thermostat drives its equipment over conventional 24 V wiring, and the daemon hasn't seen its 24 V state lines yet. This usually clears within a minute. If it stays, the thermostat reports: {summary}. Please add your diagnostics to issue #5."
+      "description": "This thermostat drives its equipment over conventional 24 V wiring, and the daemon hasn't seen its 24 V state lines yet. This usually clears within a minute. If it stays, the thermostat reports: {summary}. Please press **Collect debug report**, download diagnostics and attach them to a new issue."
     }
   },
   "entity": {
@@ -254,8 +254,8 @@
       "redeploy": {
         "name": "Redeploy daemon"
       },
-      "preflight": {
-        "name": "Run pre-flight checks"
+      "debug_report": {
+        "name": "Collect debug report"
       }
     },
     "switch": {

@@ -9,6 +9,7 @@ reboot) and start it. Nothing persistent on the thermostat is modified.
 from __future__ import annotations
 
 import asyncio
+from io import BytesIO
 from dataclasses import asdict, dataclass, field
 import hashlib
 import ipaddress
@@ -16,12 +17,14 @@ import logging
 from pathlib import Path
 import re
 import shlex
+import struct
 import time
 from typing import Any
 
 from adb_shell.adb_device_async import AdbDeviceTcpAsync
 from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeoutException
 
+from . import debug_report as dbg
 from .const import (
     CONTROL_FIRMWARE,
     DAEMON_DEVICE_PATH,
@@ -513,6 +516,66 @@ class Deployer:
                 await dev.close()
         # up to ~1 MB of text: filter off the event loop
         return await asyncio.get_running_loop().run_in_executor(None, compact_log, out.splitlines(), lines)
+
+    async def debug_report(self) -> dict[str, Any]:
+        """Deep read-only report for supporting a new build (debug report button, failed setup):
+        system and build facts, processes, log window and line sources, dev_app's symbols and
+        g_self_state layout, and a dump of it with private members zeroed. IPs are masked.
+        One ADB session: copies dev_app (~700 kB) and reads one block of its memory."""
+        report: dict[str, Any] = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            dev = await self._session()
+            try:
+                shell: dict[str, str] = {}
+                for key, cmd in dbg.DEBUG_COMMANDS:
+                    try:
+                        out = await self._sh(dev, cmd, timeout=30)
+                    except DeployError as err:
+                        out = f"error: {err}"
+                    shell[key] = dbg.mask_ips(out)[:dbg.DEBUG_OUTPUT_MAX]
+                report["shell"] = shell
+                local = self._local_sock(dev)
+                ours = await self._our_ips(dev)
+                report["adb_nat"] = {"behind_nat": local is not None and any(ip != local[0] for ip in ours),
+                                     "addresses_allowed": len(ours)}
+                buf = BytesIO()
+                try:
+                    await dev.pull(dbg.DEV_APP_PATH, buf, read_timeout_s=30)
+                except (*ADB_ERRORS, OSError) as err:
+                    report["dev_app"] = {"error": f"copy failed: {err}"}
+                    return report
+                data = buf.getvalue()
+                try:
+                    elf = await loop.run_in_executor(None, dbg.parse_elf, data)
+                    layout = await loop.run_in_executor(None, dbg.struct_layout, data)
+                except (dbg.ElfError, struct.error, IndexError, KeyError, ValueError) as err:
+                    report["dev_app"] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                                         "error": f"parse failed: {err}"}
+                    return report
+                report["dev_app"] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(), **elf}
+                report["state_layout"] = layout
+                sym = elf["symbols"].get(dbg.STATE_SYMBOL)
+                if not (sym and layout and elf["type"] == "EXEC"):
+                    report["state_dump"] = {"skipped": "no fixed address or layout for " + dbg.STATE_SYMBOL}
+                    return report
+                pid = (await self._sh(dev, "pidof dev_app")).split()
+                if not pid:
+                    report["state_dump"] = {"skipped": "dev_app not running"}
+                    return report
+                hexdump = await self._sh(
+                    dev, f"dd if=/proc/{int(pid[0])}/mem bs=1 skip={int(sym['addr'], 16)} count={int(sym['size'])} "
+                         "2>/dev/null | hexdump -v -e '1/1 \"%02x\"'", timeout=30)
+            finally:
+                await dev.close()
+        try:
+            dump = bytes.fromhex(hexdump.strip())
+        except ValueError:
+            report["state_dump"] = {"error": "unreadable memory dump"}
+            return report
+        report["state_dump"] = {"bytes": len(dump), "hex": dbg.redact_dump(dump, layout).hex(),
+                                "fields": dbg.decode_dump(dump, layout)}
+        return report
 
     async def read_versions(self) -> dict[str, str]:
         """Version strings shown in the ACiQ app (read-only)."""

@@ -1,15 +1,17 @@
-"""Maintenance buttons: redeploy the daemon, re-run pre-flight checks."""
+"""Maintenance buttons: redeploy the daemon; collect a debug report (pre-flight + build details)."""
 
 from __future__ import annotations
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
-from .const import DOMAIN
+from .const import BUG_ISSUE_URL, DOMAIN, NEW_ISSUE_URL
 from .coordinator import AciqCoordinator
 from .deployer import DeployError
 from .entity import AciqEntity
@@ -21,7 +23,11 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     c = entry.runtime_data
-    async_add_entities([RedeployButton(c), PreflightButton(c)])
+    # "Run pre-flight checks" (before 1.1.2) is part of the debug report now
+    ent_reg = er.async_get(hass)
+    if old := ent_reg.async_get_entity_id("button", DOMAIN, f"{entry.unique_id}_preflight"):
+        ent_reg.async_remove(old)
+    async_add_entities([RedeployButton(c), DebugReportButton(c)])
 
 
 class RedeployButton(AciqEntity, ButtonEntity):
@@ -46,12 +52,14 @@ class RedeployButton(AciqEntity, ButtonEntity):
         await self.coordinator.async_request_refresh()
 
 
-class PreflightButton(AciqEntity, ButtonEntity):
-    _attr_translation_key = "preflight"
+class DebugReportButton(AciqEntity, ButtonEntity):
+    """Read-only deep report for new firmware or problems: kept for the next diagnostics download."""
+
+    _attr_translation_key = "debug_report"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: AciqCoordinator) -> None:
-        super().__init__(coordinator, "preflight")
+        super().__init__(coordinator, "debug_report")
 
     @property
     def available(self) -> bool:
@@ -59,15 +67,22 @@ class PreflightButton(AciqEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         try:
-            res = await self.coordinator.async_run_preflight()
+            report = await self.coordinator.async_collect_debug_report()
         except DeployError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="deploy_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
-        if not res["passed"]:
-            failed = ", ".join(c["key"] for c in res["checks"] if c["fatal"] and not c["ok"])
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="checks_failed",
-                translation_placeholders={"checks": failed},
-            )
+        pre = report["preflight"]
+        failed = [c["key"] for c in pre["checks"] if not c["ok"]]
+        status = "all pre-flight checks passed" if not failed else "pre-flight: " + ", ".join(failed) + " failed"
+        url = NEW_ISSUE_URL if not pre["passed"] else BUG_ISSUE_URL
+        persistent_notification.async_create(
+            self.hass,
+            f"Debug report collected ({status}).\n\n"
+            "1. Download diagnostics: Settings → Devices & services → ACiQ Thermostat → ⋮ → "
+            "**Download diagnostics**. The report is included (no IPs or serial).\n"
+            f"2. [Open a GitHub issue]({url}) and attach the file.",
+            title="ACiQ Thermostat debug report",
+            notification_id=f"{DOMAIN}_debug_report_{self.coordinator.config_entry.entry_id}",
+        )

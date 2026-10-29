@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.2 — 2026-10-28
+### Added
+- **Collect debug report** button (replaces *Run pre-flight checks*): runs pre-flight and a read-only deep report
+  (firmware and binary hashes, kernel, processes, log window and which functions log, Docker/NAT detection, and from a
+  copy of `dev_app` parsed in Home Assistant its symbols, the `g_self_state` layout and a dump of it with the serial
+  zeroed). It's added to the next diagnostics download, and a notification links to download it and open an issue.
+  No IPs or serial numbers.
+- When setup fails pre-flight, the same report is saved to `/config/aciq_thermostat_debug_report_<date>.json`,
+  and the error links to a new-firmware issue.
+- Repairs notes, the issue forms and the README point to the debug report and the right issue form.
+### Removed
+- The *Run pre-flight checks* button (its results are in the debug report); the old entity is removed automatically.
+
 ## 1.1.1 — 2026-10-28
 ### Fixed
 - **Home Assistant in Docker with bridge networking** ([#8](https://github.com/oxn0r/ha-aciq-thermostat/issues/8)):

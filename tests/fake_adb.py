@@ -8,6 +8,7 @@ import hashlib
 from typing import Any
 
 from custom_components.aciq_thermostat.const import VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
+from custom_components.aciq_thermostat.debug_report import DEBUG_COMMANDS
 from custom_components.aciq_thermostat.deployer import DAEMON_LOCAL_PATH
 
 BUNDLED_SHA = hashlib.sha256(DAEMON_LOCAL_PATH.read_bytes()).hexdigest()
@@ -43,9 +44,14 @@ class FakeThermostat:
     ahu3_lines: int = 5                                  # 0 + v24_lines > 0 = conventional 24 V wiring
     v24_lines: int = 0
     log_lines: list[str] = field(default_factory=list)  # what the recent-log grep returns
+    dev_app_bytes: bytes = b""                           # what `pull /usr/bin/dev_app` returns
+    dev_app_mem: bytes = b""                             # what the g_self_state dd/hexdump reads
 
     def factory(self, *args: Any, **kwargs: Any) -> FakeAdb:
         return FakeAdb(self)
+
+
+DEBUG_SHELL = {c for _, c in DEBUG_COMMANDS}
 
 
 class _Writer:
@@ -76,9 +82,18 @@ class FakeAdb:
         self.t.pushes += 1
         self.t.new_file_sha = "0" * 64 if self.t.push_corrupts else BUNDLED_SHA
 
+    async def pull(self, remote: str, local: Any, **kwargs: Any) -> None:
+        if not self.t.dev_app_bytes:
+            raise OSError("no such file")
+        local.write(self.t.dev_app_bytes)
+
     async def shell(self, cmd: str, **kwargs: Any) -> str:  # noqa: C901 - a dispatch table
         t = self.t
         t.commands.append(cmd)
+        if cmd.startswith("dd if=/proc/"):
+            return t.dev_app_mem.hex()
+        if cmd == "pidof dev_app":
+            return "1666"
         if cmd == "date -u +%s":
             import time as _t
             return str(int(_t.time() + t.clock_skew))
@@ -180,4 +195,6 @@ class FakeAdb:
             return "V4.3"
         if "dev_version_info" in cmd:
             return "00AC000111171171000066111008\n00AC000111171\n1000"
+        if cmd in DEBUG_SHELL:
+            return f"output of {cmd.split()[0]} from 10.0.0.9"
         raise AssertionError(f"unexpected command: {cmd}")

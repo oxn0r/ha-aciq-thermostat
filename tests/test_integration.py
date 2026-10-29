@@ -60,6 +60,8 @@ async def test_config_flow_failed_checks(hass: HomeAssistant, mock_deployer) -> 
         result["flow_id"], {CONF_HOST: HOST, CONF_NAME: "T", CONF_PORT: 8080, CONF_ADB_PORT: 5555})
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "checks_failed"}
+    assert "debug report was saved to `/config/aciq_thermostat_debug_report_" in result["description_placeholders"]["checks"]
+    assert "new_firmware.yml" in result["description_placeholders"]["checks"]
 
 
 async def test_config_flow_cannot_connect(hass: HomeAssistant, mock_deployer) -> None:

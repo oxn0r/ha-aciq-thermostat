@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Integration version
-      placeholder: 1.0.0
+      placeholder: 1.1.2
     validations:
       required: true
   - type: input
@@ -26,7 +26,9 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: Device page → ⋮ → Download diagnostics, then attach or paste here.
+      description: >-
+        Device page → **Collect debug report** (optional, adds build details), then ⋮ → **Download diagnostics**,
+        right after the problem (the thermostat's own log only keeps a few minutes). Attach the file here.
   - type: textarea
     id: logs
     attributes:

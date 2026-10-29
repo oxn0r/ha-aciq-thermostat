@@ -50,6 +50,7 @@ from .const import (
     ISSUE_24V_READ_ONLY,
     ISSUE_DEPLOY,
     ISSUE_FIRMWARE,
+    NEW_ISSUE_URL,
     LONG_POLL_MAX_BACKOFF,
     LONG_POLL_TIMEOUT,
     PROBE_TIMEOUT,
@@ -146,6 +147,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.outage: Outage | None = None
         self.events: deque[dict[str, Any]] = deque(maxlen=20)   # outages + deploys, for diagnostics
         self.commands: deque[dict[str, Any]] = deque(maxlen=10)  # control commands + results, for diagnostics
+        self.debug_report: dict[str, Any] | None = None           # last "Collect debug report", for diagnostics
         self.v24_events: deque[dict[str, Any]] = deque(maxlen=60)  # 24 V state changes, for diagnostics
         self._v24_last: dict[str, Any] | None = None
         self.long_poll_supported: bool | None = None
@@ -354,6 +356,12 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             _LOGGER.debug("Cloud-traffic block on %s verified: %s", self.host, self.deployer.last_egress)
 
+    async def async_collect_debug_report(self) -> dict[str, Any]:
+        """Pre-flight plus the deep debug report (read-only), kept for diagnostics."""
+        preflight = await self.async_run_preflight()
+        self.debug_report = {"preflight": preflight, **await self.deployer.debug_report()}
+        return self.debug_report
+
     async def async_run_preflight(self) -> dict[str, Any]:
         res = await self.deployer.preflight()
         self.preflight = res.as_dict()
@@ -483,7 +491,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if data.get("control_enabled") is False:
             ir.async_create_issue(
                 self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
-                translation_key=ISSUE_FIRMWARE,
+                translation_key=ISSUE_FIRMWARE, learn_more_url=NEW_ISSUE_URL,
                 translation_placeholders={"firmware": str(data.get("firmware")),
                                           "verified": VERIFIED_FIRMWARE},
             )
@@ -500,7 +508,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ir.async_create_issue(
             self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.ERROR,
             translation_key=ISSUE_24V, translation_placeholders={"summary": summary},
-            learn_more_url="https://github.com/oxn0r/ha-aciq-thermostat/issues/5",
+            learn_more_url=NEW_ISSUE_URL,
         )
         # setup retries build a new coordinator each time: remember per host, log on change only
         if _V24_LOGGED.get(self.host) != summary:

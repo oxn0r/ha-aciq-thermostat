@@ -1,16 +1,36 @@
 name: New thermostat firmware / device
-description: Pre-flight failed or "firmware changed" repair appeared
+description: Setup's pre-flight failed, or the "firmware changed" repair appeared
 labels: [firmware]
 body:
-  - type: textarea
-    id: preflight
+  - type: markdown
     attributes:
-      label: Pre-flight results
-      description: Copy the check list from the setup dialog or the diagnostics download.
+      value: |
+        Thanks! One file usually has everything needed to support a new build, so no ADB commands are needed:
+        - **The thermostat is set up:** on its device page press **Collect debug report**, then ⋮ → **Download diagnostics**, and attach the file below.
+        - **Setup failed at pre-flight:** the integration saved `aciq_thermostat_debug_report_<date>.json` in your Home Assistant `/config` folder. Attach that file.
+
+        Both are read-only and leave out IP addresses and the serial number.
+  - type: textarea
+    id: report
+    attributes:
+      label: Debug report or diagnostics file
+      description: Drag the file here.
     validations:
       required: true
   - type: input
     id: model
     attributes:
-      label: Thermostat model and wiring
-      placeholder: TL04-1, communicating (HA/HB) to Midea air handler
+      label: Thermostat brand, model and wiring
+      placeholder: Midea TL04-1, communicating (HA/HB) to a Midea air handler; or 24 V R/C/W/Y/G
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant install type and version
+      placeholder: Home Assistant OS 2026.10 / Container (Docker) / Core
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: What works, what doesn't, and what the thermostat screen shows.
