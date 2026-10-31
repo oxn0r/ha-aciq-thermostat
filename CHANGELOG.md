@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.2.0)
+## 1.2.0 — 2026-10-31
 ### Added
 - **ACiQ System Card**, bundled: an animated schematic of the heat pump, refrigerant lines, coil, gas furnace, blower,
   ducts and house. The integration serves it at `/aciq_thermostat/aciq-system-card.js` and loads it in every
