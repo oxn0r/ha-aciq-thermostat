@@ -155,3 +155,18 @@ test("editor maps the form to the card config", () => {
   assert.deepEqual(ed.events.at(-1).detail.config,
     { type: "custom:aciq-system-card", device_id: "dev1", title: "HVAC", entities: { power: "sensor.p" } });
 });
+
+test("animations loop seamlessly and keep their phase across re-renders", () => {
+  const src = readFileSync(new URL("../../custom_components/aciq_thermostat/frontend/aciq-system-card.js", import.meta.url), "utf8");
+  // each dash animation moves a whole number of its pattern's periods
+  const period = (cls) => src.match(new RegExp(`\\.${cls} \\{[^}]*stroke-dasharray: (\\d+) (\\d+)`)).slice(1).reduce((a, b) => +a + +b, 0);
+  assert.equal(32 % period("flow"), 0);
+  assert.equal(30 % period("air"), 0);
+  assert.ok(src.includes(".air.run { animation-name: airdash; }"));
+  // a render pins running animations to the timeline's zero, so re-rendering doesn't restart them
+  const c = card({}, hassFor(system("family_room"), STATES.heat));
+  const anims = [{ playState: "running", startTime: 812 }, { playState: "paused", startTime: null }];
+  c.shadowRoot.getAnimations = () => anims;
+  c._render();
+  assert.deepEqual(anims.map((a) => a.startTime), [0, null]);
+});

@@ -11,6 +11,10 @@
   that picks the first ACiQ thermostat.
 - The card finds entities through the device's entity registry (by translation key), so it works whatever the device
   is named. The `prefix:` and `entities:` options from the standalone card keep working.
+### Fixed (since the standalone card v0.2.2)
+- **Smooth animation:** every sensor update rebuilt the card and restarted its animations from the first frame, and
+  the air-duct dashes jumped at each loop. Animations now keep their place across updates, and every loop ends
+  where it starts.
 
 ## 1.1.3 — 2026-10-29
 ### Added

@@ -153,8 +153,9 @@ class AciqSystemCard extends HTMLElement {
     // Refrigerant direction: in heat the hot gas goes indoors, in cool it comes back.
     const heatingHP = comp && action !== "cooling";
     const refColor = !comp ? "var(--divider-color, #555)" : heatingHP ? "#ff6b3d" : "#2b8cff";
-    const fanDur = comp ? Math.max(0.35, 2.4 - (hz / HZ_MAX) * 2) : 0;
-    const blowDur = blow ? Math.max(0.3, 1.4 - ((stage || 1) - 1) * 0.3) : 0;
+    const step = (d) => Math.round(d * 20) / 20;   // 0.05 s steps: small Hz changes keep the same speed
+    const fanDur = comp ? step(Math.max(0.35, 2.4 - (hz / HZ_MAX) * 2)) : 0;
+    const blowDur = blow ? step(Math.max(0.3, 1.4 - ((stage || 1) - 1) * 0.3)) : 0;
     const supplyColor = blow ? (furn ? "#ff5a36" : this._tempColor(coil)) : "var(--divider-color, #555)";
 
     let headline;
@@ -191,12 +192,14 @@ class AciqSystemCard extends HTMLElement {
   .flow { fill: none; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 6 10; stroke: rgba(255,255,255,.75); }
   .duct { fill: none; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
   .air { fill: none; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 3 12; stroke: rgba(255,255,255,.8); }
+  .air.run { animation-name: airdash; }
   .spin { transform-box: view-box; animation: spin linear infinite; }
   .run { animation: dash 1.2s linear infinite; }
   .runrev { animation: dash 1.2s linear infinite reverse; }
   .flame { transform-box: fill-box; transform-origin: bottom center; animation: flick .5s ease-in-out infinite alternate; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes dash { to { stroke-dashoffset: -32; } }
+  @keyframes dash { to { stroke-dashoffset: -32; } }      /* 2 x the .flow dash period (6+10) */
+  @keyframes airdash { to { stroke-dashoffset: -30; } }   /* 2 x the .air dash period (3+12) */
   @keyframes flick { from { transform: scaleY(.85); } to { transform: scaleY(1.1); } }
   @media (prefers-reduced-motion: reduce) { .spin, .run, .runrev, .flame { animation: none; } }
 </style>
@@ -275,7 +278,18 @@ class AciqSystemCard extends HTMLElement {
 </ha-card>`;
     this.shadowRoot.querySelectorAll(".hit").forEach((el) =>
       el.addEventListener("click", () => this._moreInfo(el.dataset.k)));
+    this._align();
   }
+
+  // Each render replaces the SVG, which would restart every animation from its first frame
+  // (a visible jump on every sensor update). Start them all at the page timeline's zero
+  // instead, so a re-rendered card continues exactly where the old one was.
+  _align() {
+    for (const a of this.shadowRoot?.getAnimations?.() ?? [])
+      if (a.playState === "running") a.startTime = 0;
+  }
+
+  connectedCallback() { this._align(); }   // the first render may happen before the card is on the page
 }
 
 // Visual editor: device, title and the two optional non-integration sensors.
