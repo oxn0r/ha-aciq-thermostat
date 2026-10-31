@@ -36,10 +36,13 @@ supports: see [Supported devices](#supported-devices).
 
 ### Quick start (5 minutes)
 1. Give the thermostat a fixed IP in your router (its hostname starts with `midea_`).
-2. In Home Assistant: **HACS → ⋮ → Custom repositories →** `https://github.com/oxn0r/ha-aciq-thermostat`
-   (type *Integration*) → find **ACiQ Thermostat (Local)** → **Download** → restart Home Assistant.
-3. **Settings → Devices & services.** The thermostat usually appears as *Discovered*. If not, use **Add integration →
-   ACiQ Thermostat (Local)** and enter its IP.
+2. Open it in HACS, press **Download**, then restart Home Assistant:
+
+   [![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=oxn0r&repository=ha-aciq-thermostat&category=integration)
+3. The thermostat usually appears under **Settings → Devices & services** as *Discovered*. If not, add it and enter
+   its IP:
+
+   [![Open your Home Assistant instance and start setting up ACiQ Thermostat (Local).](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=aciq_thermostat)
 4. Review the safety checks it runs and press **Submit**. Done.
 
 Setup stopped at *Pre-flight checks failed*, or something isn't right later? See
@@ -55,24 +58,6 @@ Want the details? Everything below explains how it works, what's verified, and h
 > format, and wrote the original `thermostat_api` daemon this integration's daemon is derived from.
 
 ---
-
-## Contents
-- [Supported devices](#supported-devices)
-- [How it works](#how-it-works)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Entities](#entities)
-- [Actions, triggers and conditions](#actions-triggers-and-conditions)
-- [Data updates](#data-updates)
-- [System card](#system-card)
-- [Examples and use cases](#examples-and-use-cases)
-- [Known limitations](#known-limitations)
-- [Troubleshooting](#troubleshooting)
-- [Security](#security)
-- [Removal](#removal)
-- [Quality](#quality)
-- [Development](#development)
-- [Credits and license](#credits-and-license)
 
 ## Supported devices
 | Device | Status |
@@ -113,10 +98,15 @@ The TL04-1 runs Linux and exposes an unauthenticated root **ADB** shell on TCP 5
 TCP **5555** (ADB) and **8080** (API).
 
 ### HACS (recommended)
-1. HACS → ⋮ → **Custom repositories** → `https://github.com/oxn0r/ha-aciq-thermostat`, category **Integration**.
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=oxn0r&repository=ha-aciq-thermostat&category=integration)
+
+1. Use the button, or in HACS: ⋮ → **Custom repositories** → `https://github.com/oxn0r/ha-aciq-thermostat`, category
+   **Integration**.
 2. Search for **ACiQ Thermostat (Local)** → **Download** → restart Home Assistant.
 3. The thermostat is usually **discovered automatically** (DHCP hostname `midea_*`). Otherwise:
-   **Settings → Devices & services → Add integration → ACiQ Thermostat (Local)**.
+   **Settings → Devices & services → Add integration → ACiQ Thermostat (Local)**, or:
+
+   [![Open your Home Assistant instance and start setting up ACiQ Thermostat (Local).](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=aciq_thermostat)
 
 ### Manual
 Copy `custom_components/aciq_thermostat` into your `config/custom_components/`, then restart Home Assistant.
@@ -259,25 +249,20 @@ entities:                           # optional overrides; null hides one
 The card finds the thermostat's entities through the device, so it works whatever the device or its entities are named. How each part is chosen, first match wins:
 1. `entities:` override for that part
 2. `device_id`
-3. `prefix:` (entity ids like `sensor.<prefix>_temperature`, as in earlier card versions)
-4. the only ACiQ thermostat, if there's exactly one
-5. prefix `family_room`
+3. the only ACiQ thermostat, if there's exactly one
 
-Override keys: `climate`, `room`, `humidity`, `setpoint`, `mode`, `outdoor`, `outdoor_coil`, `indoor_coil`, `return_air`, `hz`, `blower_stage`, `compressor`, `furnace`, `blower`, `fault`, `fault_codes`, `power`, `filter`.
+<details><summary>Override keys</summary>
+
+`climate`, `room`, `humidity`, `setpoint`, `mode`, `outdoor`, `outdoor_coil`, `indoor_coil`, `return_air`, `hz`,
+`blower_stage`, `compressor`, `furnace`, `blower`, `fault`, `fault_codes`, `dry_left`, `power`, `filter`.
+
+</details>
 
 The schematic shows what the equipment data reports, so it needs firmware with equipment data (see [Supported devices](#supported-devices)). Without it, the house and mode still show, and the equipment stays idle.
 
-### Upgrading from the standalone card
-
-If you loaded `aciq-system-card.js` yourself (for example from `/local/aciq/aciq-system-card.js`):
-1. Remove that dashboard resource (Settings → Dashboards → ⋮ → Resources).
-2. Delete the file from `/config/www/aciq/`.
-3. Keep your dashboard YAML. `type: custom:aciq-system-card` with `prefix:`, `title:` and `entities:` works unchanged.
-
-If the old resource stays, whichever copy loads first is used and the other is ignored, so nothing breaks. You just may not get the bundled version.
-
 ## Examples and use cases
-**Know which heat source is running (dual fuel):**
+<details><summary>Know which heat source is running (dual fuel)</summary>
+
 ```yaml
 template:
   - sensor:
@@ -288,7 +273,10 @@ template:
           {% else %}Idle{% endif %}
 ```
 
-**Notify on an equipment fault:**
+</details>
+
+<details><summary>Notify on an equipment fault</summary>
+
 ```yaml
 automation:
   - alias: HVAC fault
@@ -302,7 +290,10 @@ automation:
           message: "HVAC fault: {{ states('sensor.family_room_fault_codes') }}"
 ```
 
-**Dry out a muggy house while cooling:**
+</details>
+
+<details><summary>Dry out a muggy house while cooling</summary>
+
 ```yaml
 automation:
   - alias: Dry when humid
@@ -325,7 +316,10 @@ automation:
 After the 30 minutes the thermostat is back in Cool. Started from Heat or Auto instead, it returns to that mode
 (option *After Dry, return to the previous mode*).
 
-**Night setback:**
+</details>
+
+<details><summary>Night setback</summary>
+
 ```yaml
 automation:
   - alias: Night setback
@@ -339,6 +333,8 @@ automation:
         data:
           temperature: 66
 ```
+
+</details>
 
 Other uses: chart compressor Hz against outdoor temperature to see how the heat pump modulates; count furnace
 runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays near freezing (defrost behaviour).
@@ -374,6 +370,8 @@ firewall rule on the thermostat drops everything except your LAN and Home Assist
 router. It's re-applied after reboots and removed when you turn it off. There's also a **Block cloud traffic** switch on
 the device page for one-tap on/off.
 
+<details><summary>What's blocked, and the measured effect</summary>
+
 Only public internet destinations are dropped (NTP on UDP 123 is let through so a router-side NTP intercept can answer). Local traffic is never filtered: your LAN, every private range
 (10/8, 172.16/12, 192.168/16), link-local, 100.64/10 (VPNs such as Tailscale), Home Assistant, broadcast and multicast.
 The rule lives in the thermostat's memory only, so a power cycle always clears it. The integration verifies it after
@@ -381,6 +379,8 @@ every reboot and every 30 minutes.
 
 Measured on a TL04-1: the cloud client's CPU use dropped from ~23 % to ~2 % of a core, its DNS traffic from ~40
 packets/s to zero, and system load fell noticeably.
+
+</details>
 
 ## Troubleshooting
 | Symptom | Fix |
@@ -426,12 +426,15 @@ configuration folder, like `aciq_thermostat_debug_report_20261029_183000.json`. 
 Then [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml)
 and drag the file in.
 
-#### What's in the debug report
+<details><summary>What's in the debug report</summary>
+
 The debug report contains the firmware and binary hashes, kernel and memory, the thermostat processes, the log window
 and which functions log how often, whether Home Assistant is behind NAT (Docker), and, from a copy of `dev_app` parsed
 in Home Assistant, its symbols, the layout of its state block (`g_self_state`) and a dump of that block with the
 serial zeroed. That's what's needed to map equipment data and new features (like defrost) on a new build. The
 `dev_app` binary itself isn't included.
+
+</details>
 
 **Debug log** (only if asked): **Settings → Devices & services → ACiQ Thermostat (Local) → ⋮ → Enable debug
 logging**, reproduce the problem, then **⋮ → Disable debug logging**. Home Assistant then downloads the log file;
