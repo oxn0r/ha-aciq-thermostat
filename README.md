@@ -187,7 +187,8 @@ pull more moisture out of the air, for a set time. Home Assistant controls it li
   **Dry duration**; or use the **Start Dry** action with a duration.
 - **Cool first:** the thermostat only starts Dry from Cool. From Heat, Auto, Fan only or Off, Home Assistant switches
   to Cool first and notes it in the logbook.
-- **Countdown:** the screen counts down; **Dry time left** follows it. Dry also ends by itself when the room drops
+- **Countdown:** the screen counts down; **Dry time left** follows it. Changing **Dry duration** while Dry runs
+  applies to the next Dry; the running countdown carries on. Dry also ends by itself when the room drops
   below 65 °F, or when the mode is changed. The setpoint can be changed while drying.
 - **Afterwards:** the thermostat is in Cool. With *After Dry, return to the previous mode* on (the default), Home
   Assistant puts back the mode (and setpoint) Dry was started from, for Dry it started itself. Dry started on the
