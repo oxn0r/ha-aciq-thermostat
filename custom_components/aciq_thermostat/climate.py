@@ -36,6 +36,7 @@ from .const import (
     AUTO_STATE_HEAT,
     COIL_COOLING_DELTA,
     COIL_HEATING_DELTA,
+    CONF_HIDE_FAN,
     DOMAIN,
     DEV_AUTO,
     DEV_COOL,
@@ -148,7 +149,8 @@ class AciqClimate(AciqEntity, ClimateEntity):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_DRY, DEV_EMERGENCY_HEAT):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE
-        if self._dev_mode in FAN_ADJUSTABLE_MODES and self.data.get("wiring") != "24v":
+        if (self._dev_mode in FAN_ADJUSTABLE_MODES and self.data.get("wiring") != "24v"
+                and not self.coordinator.config_entry.options.get(CONF_HIDE_FAN, False)):
             f |= ClimateEntityFeature.FAN_MODE
         return f
 

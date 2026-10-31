@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1 — 2026-10-31
+### Added
+- Option **Hide fan speed on the thermostat** (off by default): removes fan speed from the climate entity, so it's
+  kept off its card and out of Apple Home. The *Fan setting* sensor still shows it. Replaces overriding the entity's
+  `supported_features` in customize, which also hid the Auto heat/cool range
+  ([#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7)).
+### Changed
+- README: don't override `supported_features`, and a Troubleshooting row for missing setpoint handles.
+
 ## 1.2.0 — 2026-10-31
 ### Added
 - **ACiQ System Card**, bundled: an animated schematic of the heat pump, refrigerant lines, coil, gas furnace, blower,

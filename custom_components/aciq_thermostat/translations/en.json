@@ -60,14 +60,16 @@
           "extra_allowed_ips": "Extra IPs allowed to use the thermostat API (comma separated)",
           "block_egress": "Block the thermostat's cloud traffic at the source",
           "sync_clock": "Keep the thermostat clock in sync with Home Assistant",
-          "dry_return_previous": "After Dry, return to the previous mode"
+          "dry_return_previous": "After Dry, return to the previous mode",
+          "hide_fan_speed": "Hide fan speed on the thermostat"
         },
         "data_description": {
           "auto_deploy": "Copy and start the local API daemon on the thermostat at startup and after it reboots. Turn off only if you manage the daemon yourself.",
           "extra_allowed_ips": "Home Assistant's own IP is always allowed. Add other machines (e.g. a workstation) that may use the thermostat API directly.",
           "block_egress": "Drops traffic from the thermostat to public internet addresses only. Local traffic is never blocked (your LAN, any private 10/172.16/192.168 network, link-local, VPN/Tailscale 100.64/10, Home Assistant, broadcast/multicast). Temporary rule on the thermostat: re-applied after reboots, removed when turned off, cleared by a power cycle. Stops the ACiQ cloud client's endless DNS retries; the ACiQ app will not work while on.",
           "sync_clock": "With its internet blocked the thermostat can't use NTP and its clock drifts (and may start hours off after a reboot). Home Assistant checks it after reboots and every 6 hours and corrects it when it is 2 s or more off (temporary, nothing on the thermostat is changed permanently).",
-          "dry_return_previous": "Dry only runs from Cool, so starting it from Heat, Auto, Fan only or Off switches the thermostat to Cool first, and the thermostat stays in Cool when Dry ends (countdown done, below 65 °F, or cancelled). With this on, Home Assistant puts back the mode (and setpoint) Dry was started from. Only for Dry started from Home Assistant."
+          "dry_return_previous": "Dry only runs from Cool, so starting it from Heat, Auto, Fan only or Off switches the thermostat to Cool first, and the thermostat stays in Cool when Dry ends (countdown done, below 65 °F, or cancelled). With this on, Home Assistant puts back the mode (and setpoint) Dry was started from. Only for Dry started from Home Assistant.",
+          "hide_fan_speed": "Removes fan speed from the thermostat entity, so it isn't offered on its card or in Apple Home (through HomeKit Bridge). Fan speed then can't be changed from Home Assistant; the Fan setting sensor keeps showing it. Use this instead of overriding the entity's supported_features, which would also hide setpoints."
         }
       }
     },

@@ -12,7 +12,8 @@ CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
 CONF_SYNC_CLOCK = "sync_clock"
-CONF_DRY_RETURN = "dry_return_previous"   # after Dry ends in Cool, put back the mode Dry started from
+CONF_DRY_RETURN = "dry_return_previous"
+CONF_HIDE_FAN = "hide_fan_speed"          # thermostat entity without fan speed (e.g. kept out of Apple Home)   # after Dry ends in Cool, put back the mode Dry started from
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080

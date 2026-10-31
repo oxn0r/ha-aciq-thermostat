@@ -139,6 +139,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Keep the thermostat clock in sync with Home Assistant | on | Corrects drift ≥ 2 s after reboots and every 6 h (the thermostat can't use NTP with its internet blocked) |
 | Block the thermostat's internet at the source | off | Runtime firewall rule on the thermostat: only LAN/HA traffic leaves it (see [Router flooded](#router-flooded-with-dns-lookups)) |
 | Extra allowed IPs | (empty) | Other hosts allowed to use the API directly (HA's own IP is always allowed) |
+| Hide fan speed on the thermostat | off | Removes fan speed from the thermostat entity (its card and Apple Home); the *Fan setting* sensor still shows it. Use this rather than overriding `supported_features` (see [Troubleshooting](#troubleshooting)) |
 | After Dry, return to the previous mode | on | When Dry started from Home Assistant ends, put back the mode (and setpoint) it was started from; off = stay in Cool, like the screen (see [Dry](#dry-dehumidify)) |
 
 **Reconfigure** (⋮ → Reconfigure) changes the IP or ports. It re-runs the checks and refuses if a different thermostat answers.
@@ -146,7 +147,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 ## Entities
 | Entity | Type | Notes |
 |---|---|---|
-| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only / Dry (communicating systems) · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
+| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only / Dry (communicating systems) · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool; option to hide) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
@@ -171,6 +172,11 @@ low/high targets, and switches within a second or two if the setting changes. He
 Range writes are checked: if the thermostat doesn't report the new range (it clamps values to its limits), you get an
 error with the values it kept. Apple Home builds its controls when HomeKit Bridge starts, so **reload HomeKit Bridge**
 after changing this setting on the thermostat.
+
+**Don't override the thermostat's `supported_features`** (e.g. in `customize.yaml`). The integration changes them
+with the mode: one setpoint, a heat/cool range in Auto, fan speed only in Heat and Cool. A fixed number leaves some
+out, for example the Auto range, and the card then shows no setpoint handles. To keep fan speed out of Apple Home,
+use the option **Hide fan speed on the thermostat** instead.
 
 **Apple Home shows "Keep between" (two handles) while the thermostat holds one setpoint?** Apple Home is using an
 outdated copy of the accessory, and both handles move the same single setpoint (the last one moved wins). Recreate it:
@@ -384,6 +390,7 @@ packets/s to zero, and system load fell noticeably.
 | Reporting a problem | Right after it happens, follow [Getting a debug report](#getting-a-debug-report-and-diagnostics) and attach the file to a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml). No ADB capture is needed |
 | Entities unavailable after a thermostat reboot | Wait ~1 minute (auto-redeploy) or press **Redeploy daemon** |
 | Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Follow [Getting a debug report](#getting-a-debug-report-and-diagnostics) and [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) |
+| No setpoint handles on the thermostat card (e.g. in Auto) | Remove any `supported_features` override for the climate entity (customize); to hide fan speed, use the option *Hide fan speed on the thermostat* ([#7](https://github.com/oxn0r/ha-aciq-thermostat/issues/7)) |
 | Apple Home shows a range (*Keep between*) in Auto | See [Auto: one setpoint or a heat/cool range](#auto-one-setpoint-or-a-heatcool-range) |
 | Commands ignored / 400 errors | See the HA log; the daemon reports why (validation, fan lock, firmware guard) |
 
