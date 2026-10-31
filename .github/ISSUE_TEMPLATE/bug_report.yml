@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Integration version
-      placeholder: 1.1.2
+      placeholder: 1.1.3
     validations:
       required: true
   - type: input
@@ -28,7 +28,7 @@ body:
       label: Diagnostics
       description: >-
         Device page → **Collect debug report** (optional, adds build details; wait until *Last debug report* shows the time), then ⋮ → **Download diagnostics**,
-        right after the problem (the thermostat's own log only keeps a few minutes). Attach the file here.
+        right after the problem (the thermostat's own log only keeps a few minutes). Attach the file here. Step by step: [Getting a debug report](https://github.com/oxn0r/ha-aciq-thermostat#getting-a-debug-report-and-diagnostics).
   - type: textarea
     id: logs
     attributes:

@@ -29,9 +29,10 @@ to put a tiny local API on the thermostat, then talks to it directly. No cloud, 
 - 🌤️ **Outdoor temperature** from the outdoor unit, plus coil temperatures, blower state and fault codes
 - Works with HomeKit, automations, dashboards, energy tracking
 
-**Is this for me?** Yes, if your thermostat says **TL04-1** on the box or in the ACiQ app, and it's wired to a Midea or ACiQ
-indoor unit (communicating HA/HB wiring, typical for ACiQ heat pump, air handler and furnace systems).
-Other setups: see [Supported devices](#supported-devices).
+**Is this for me?** Yes, if your thermostat says **TL04-1** on the box or in the ACiQ app (also sold as Carrier
+KSACN1701AAA and Midea-branded). It works wired to a Midea or ACiQ indoor unit (communicating HA/HB wiring, typical
+for ACiQ heat pump, air handler and furnace systems) and with conventional 24 V wiring. Firmware builds and what each
+supports: see [Supported devices](#supported-devices).
 
 ### Quick start (5 minutes)
 1. Give the thermostat a fixed IP in your router (its hostname starts with `midea_`).
@@ -40,6 +41,9 @@ Other setups: see [Supported devices](#supported-devices).
 3. **Settings → Devices & services.** The thermostat usually appears as *Discovered*. If not, use **Add integration →
    ACiQ Thermostat (Local)** and enter its IP.
 4. Review the safety checks it runs and press **Submit**. Done.
+
+Setup stopped at *Pre-flight checks failed*, or something isn't right later? See
+[Getting a debug report](#getting-a-debug-report-and-diagnostics): one file is all that's needed to help.
 
 > Recommended: block the thermostat's internet access in your router afterwards. The debug port it relies on is open to your
 > whole network, and blocking the internet also stops firmware updates that might close it. See [Security](#security).
@@ -88,7 +92,7 @@ The TL04-1 runs Linux and exposes an unauthenticated root **ADB** shell on TCP 5
    - the root shell
    - the firmware build and the `dev_app` binary hash
    - the IPC queues
-   - communicating mode
+   - the wiring (communicating HA/HB or conventional 24 V)
 2. **Deploy:** copies a 65 KB daemon (`thermostat_api`, built reproducibly from [`daemon/`](daemon/)) to the
    thermostat's **RAM disk** (`/tmp`). It verifies the checksum, then starts it with an IP allowlist of Home Assistant only.
    **Nothing persistent on the thermostat changes.**
@@ -97,8 +101,8 @@ The TL04-1 runs Linux and exposes an unauthenticated root **ADB** shell on TCP 5
 4. **Self-heal:** a thermostat reboot clears `/tmp`, so the integration redeploys automatically.
 
 ### Safety
-- **Firmware guard:** control works only on the verified build. On any other build, the daemon serves readings, rejects
-  commands, and HA raises a **Repairs** issue.
+- **Firmware guard:** control works only on the builds listed in [Supported devices](#supported-devices). On any other
+  build, the daemon serves readings, rejects commands, and HA raises a **Repairs** issue.
 - **All-or-nothing commands:** a request is fully validated before anything is sent.
 - **Fan lock:** fan speed changes only in Heat or Cool, matching the thermostat's own UI.
 - `dev_app`, `msmart`, `meiju` and the firmware are **never** modified, restarted or replaced.
@@ -163,6 +167,12 @@ low/high targets, and switches within a second or two if the setting changes. He
 Range writes are checked: if the thermostat doesn't report the new range (it clamps values to its limits), you get an
 error with the values it kept. Apple Home builds its controls when HomeKit Bridge starts, so **reload HomeKit Bridge**
 after changing this setting on the thermostat.
+
+**Apple Home shows "Keep between" (two handles) while the thermostat holds one setpoint?** Apple Home is using an
+outdated copy of the accessory, and both handles move the same single setpoint (the last one moved wins). Recreate it:
+**Developer tools → Actions → HomeKit: Reset accessory** (`homekit.reset_accessory`) on the thermostat's climate
+entity. Apple Home then shows **"Set to"** with one handle. The reset accessory may need to be put back in its room
+and scenes.
 
 The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
 
@@ -266,30 +276,55 @@ packets/s to zero, and system load fell noticeably.
 | Symptom | Fix |
 |---|---|
 | Setup says *Could not reach the thermostat over ADB* | Check IP and port 5555 reachability from HA; disconnect any other `adb` session; power-cycle the thermostat if adbd is stuck |
-| *Pre-flight checks failed* | Firmware or device differs from the verified build. A debug report was saved to `/config`: [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) and attach it (see [Supporting a new firmware](#supporting-a-new-firmware-or-reporting-a-problem)) |
-| Reporting a problem | Make the change, then right away press **Collect debug report** and download diagnostics, and attach the file to a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml). No ADB capture is needed |
+| *Pre-flight checks failed* | Firmware or device differs from the supported builds. Nothing was changed on the thermostat, and a debug report was saved: see [Setup failed at pre-flight](#setup-failed-at-pre-flight-get-the-saved-report) |
+| Reporting a problem | Right after it happens, follow [Getting a debug report](#getting-a-debug-report-and-diagnostics) and attach the file to a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml). No ADB capture is needed |
 | Entities unavailable after a thermostat reboot | Wait ~1 minute (auto-redeploy) or press **Redeploy daemon** |
-| Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Press **Collect debug report**, download diagnostics and [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) |
+| Repairs: *firmware changed — local control disabled* | The thermostat updated itself. Readings continue. Follow [Getting a debug report](#getting-a-debug-report-and-diagnostics) and [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) |
+| Apple Home shows a range (*Keep between*) in Auto | See [Auto: one setpoint or a heat/cool range](#auto-one-setpoint-or-a-heatcool-range) |
 | Commands ignored / 400 errors | See the HA log; the daemon reports why (validation, fan lock, firmware guard) |
 
-**Diagnostics:** device page → ⋮ → *Download diagnostics* (state, versions, pre-flight results, deploy log,
-command log, recent thermostat log lines, and the debug report if one was collected).
+### Getting a debug report and diagnostics
+One file is enough for a bug report or a new firmware, with no ADB commands. It's read-only and leaves out IP
+addresses and the serial number. Do this **soon after** the problem: the thermostat's own log only keeps a few minutes.
+A computer's browser is easiest, since the download is a file you attach on GitHub.
 
-### Supporting a new firmware or reporting a problem
-One file is meant to be enough, without ADB commands or back and forth:
-1. **Thermostat set up:** on its device page press **Collect debug report**. It takes about 10 seconds and shows no
-   pop-up; when it's done, *Last debug report* shows the time and a notification appears under the **bell**
-   (Notifications) in the sidebar. Then ⋮ → **Download diagnostics**.
-   **Setup failed at pre-flight:** the integration already saved `/config/aciq_thermostat_debug_report_<date>.json`.
-2. [Open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml)
-   (or a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml)) and attach the file.
+**If the thermostat is set up:**
+1. Open **Settings → Devices & services → ACiQ Thermostat (Local)**, then click your thermostat's device (e.g.
+   *Family Room*) to open its device page.
+2. In the **Diagnostic** card, press **Collect debug report**. Home Assistant shows no pop-up for a button. Wait
+   about 10 seconds, until **Last debug report** in the same card shows the current time. A notification also
+   appears under the **bell** in the sidebar.
+3. On the same device page, open the **⋮** menu (top right) → **Download diagnostics**. Your browser saves a file
+   named like `config_entry-aciq_thermostat-<id>.json` (usually in *Downloads*). It includes the debug report.
+4. Open a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml) for a problem, or a
+   [new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml) for an unsupported build.
+   Drag the file into the issue, and say what you did and when.
 
-The debug report is read-only and leaves out IP addresses and the serial number. It contains the firmware and
-binary hashes, kernel and memory, the thermostat processes, the log window and which functions log how often, whether
-Home Assistant is behind NAT (Docker), and, from a copy of `dev_app` parsed in Home Assistant, its symbols, the layout
-of its state block (`g_self_state`) and a dump of that block with the serial zeroed. That's what's needed to map
-equipment data and new features (like defrost) on a new build. The `dev_app` binary itself isn't included.
-Debug logging:
+Skipping step 2 still gives a useful file (state, versions, deploy and command log, recent thermostat log lines).
+The debug report adds the build details needed for a new firmware.
+
+#### Setup failed at pre-flight: get the saved report
+Nothing was changed on the thermostat. The error message names a file the integration saved in your Home Assistant
+configuration folder, like `aciq_thermostat_debug_report_20261029_183000.json`. To get it onto your computer:
+- **Home Assistant OS / Supervised:** with the **Studio Code Server** app (add-on), right-click the file at the top of
+  the `config` folder → **Download**. Or open the `config` share from your computer with the **Samba share** app.
+- **Home Assistant Container (Docker, e.g. Synology):** it's in the host folder you mapped to `/config`. On a
+  Synology, open it in **File Station** and download it.
+- **Core:** it's in your configuration directory (usually `~/.homeassistant`).
+
+Then [open a new-firmware issue](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=new_firmware.yml)
+and drag the file in.
+
+#### What's in the debug report
+The debug report contains the firmware and binary hashes, kernel and memory, the thermostat processes, the log window
+and which functions log how often, whether Home Assistant is behind NAT (Docker), and, from a copy of `dev_app` parsed
+in Home Assistant, its symbols, the layout of its state block (`g_self_state`) and a dump of that block with the
+serial zeroed. That's what's needed to map equipment data and new features (like defrost) on a new build. The
+`dev_app` binary itself isn't included.
+
+**Debug log** (only if asked): **Settings → Devices & services → ACiQ Thermostat (Local) → ⋮ → Enable debug
+logging**, reproduce the problem, then **⋮ → Disable debug logging**. Home Assistant then downloads the log file;
+attach it alongside the diagnostics. Or set it permanently in `configuration.yaml`:
 ```yaml
 logger:
   logs:
