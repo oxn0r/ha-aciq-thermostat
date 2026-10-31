@@ -23,8 +23,9 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.components.logbook import async_log_entry
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -36,6 +37,7 @@ from .const import (
     CONF_ADB_PORT,
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
+    CONF_DRY_RETURN,
     CONF_SYNC_CLOCK,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
@@ -44,6 +46,11 @@ from .const import (
     CLOCK_CHECK_INTERVAL,
     CLOCK_MAX_OFFSET,
     DEPLOY_MIN_INTERVAL,
+    DEV_AUTO,
+    DEV_COOL,
+    DEV_DRY,
+    DEV_EMERGENCY_HEAT,
+    DEV_HEAT,
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
     ISSUE_24V,
@@ -93,7 +100,7 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m" if h else (f"{m}m{sec:02d}s" if m else f"{sec}s")
 
 
-RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK})
+RUNTIME_OPTIONS = frozenset({CONF_BLOCK_EGRESS, CONF_SYNC_CLOCK, CONF_DRY_RETURN})
 # What a 24 V unit accepts with setpoint control on (the daemon refuses mode and fan there too)
 V24_CONTROL_KEYS = frozenset({"mode", "temperature", "target_temp_low", "target_temp_high", "unit"})  # no fan
 
@@ -165,6 +172,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.options_snapshot: dict[str, Any] = dict(entry.options)
         self.data_snapshot: dict[str, Any] = dict(entry.data)
         self._egress_check_due = True       # verify after setup/redeploy/reboot, then every 30 min
+        # mode (and setpoint) Dry was started from by Home Assistant: put back when Dry ends in Cool
+        self.dry_return: dict[str, Any] | None = None
         self._egress_task: asyncio.Task[None] | None = None
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or self.host)},
@@ -581,6 +590,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _track_times(self, data: dict[str, Any]) -> None:
         """Boot and daemon start times from uptimes; only move on real changes (>2 min)."""
         self._track_v24(data)
+        self._track_dry(data)
         now = dt_util.utcnow()
         for attr, key in (("boot_time", "uptime_s"), ("daemon_start_time", "daemon_uptime_s")):
             secs = data.get(key)
@@ -597,6 +607,63 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._clock_check_due = True
         self._maybe_verify_egress()
         self._maybe_check_clock()
+
+    # ------------------------------------------------------------------- dry
+
+    def dry_supported(self) -> bool:
+        """Dry is mapped on communicating systems only (2026-10-31)."""
+        return (self.data or {}).get("comm_mode") == "communicating"
+
+    @property
+    def dry_return_enabled(self) -> bool:
+        return bool(self.config_entry.options.get(CONF_DRY_RETURN, True))
+
+    def _logbook(self, message: str) -> None:
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "climate", DOMAIN, f"{self.config_entry.unique_id}_climate")
+        async_log_entry(self.hass, self.config_entry.title, message, DOMAIN, entity_id)
+
+    async def async_start_dry(self, minutes: int | None = None) -> None:
+        """Start Dry, optionally with a duration. Like the screen, Dry only starts from Cool: the
+        daemon switches to Cool first when needed. The mode it came from is remembered so it can be
+        put back when Dry ends (option, on by default)."""
+        if not self.dry_supported():
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="dry_unsupported")
+        data = self.data or {}
+        mode = str(data.get("mode"))
+        payload: dict[str, Any] = {"mode": DEV_DRY}
+        if minutes is not None:
+            payload["dry_minutes"] = int(minutes)
+        if mode != DEV_DRY:
+            self.dry_return = None
+            if mode not in (DEV_COOL, "unknown"):
+                self.dry_return = {"mode": mode}
+                sp = data.get("setpoint")
+                ranged = mode == DEV_AUTO and (data.get("dev") or {}).get("zone_control") == 1
+                if mode in (DEV_HEAT, DEV_EMERGENCY_HEAT, DEV_AUTO) and isinstance(sp, (int, float)) and not ranged:
+                    self.dry_return["temperature"] = int(sp)
+        await self.async_control(payload)
+        if mode not in (DEV_COOL, DEV_DRY, "unknown"):
+            self._logbook(f"switched from {mode.replace('_', ' ')} to cool to start Dry")
+
+    def _track_dry(self, data: dict[str, Any]) -> None:
+        """Dry ended (countdown done, the 65 F cut-off, or cancelled): the thermostat is in Cool.
+        Put back the mode Dry was started from, if Home Assistant started it and the option is on."""
+        old, new = (self.data or {}).get("mode"), data.get("mode")
+        if old != DEV_DRY or new == DEV_DRY:
+            return
+        back, self.dry_return = self.dry_return, None
+        if not back or new != DEV_COOL or not self.dry_return_enabled:
+            return
+        self._logbook(f"Dry ended; returning to {back['mode'].replace('_', ' ')}")
+        self.config_entry.async_create_background_task(
+            self.hass, self._return_after_dry(back), f"{DOMAIN} return after dry {self.host}")
+
+    async def _return_after_dry(self, back: dict[str, Any]) -> None:
+        try:
+            await self.async_control(back)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Could not return %s to %s after Dry: %s", self.host, back["mode"], err)
 
     # --------------------------------------------------------------- control
 

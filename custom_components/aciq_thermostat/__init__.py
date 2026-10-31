@@ -9,21 +9,47 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import voluptuous as vol
+
+from homeassistant.components.climate.const import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv, service
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from .const import CARD_REGISTERED, CARD_URL, CONF_AUTO_DEPLOY, DOMAIN
+from .const import (
+    ATTR_DURATION,
+    CARD_REGISTERED,
+    CARD_URL,
+    CONF_AUTO_DEPLOY,
+    DOMAIN,
+    DRY_MINUTES,
+    SERVICE_START_DRY,
+)
 from .coordinator import AciqCoordinator
 from .deployer import DeployError
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SWITCH]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SELECT,
+             Platform.SWITCH]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 type AciqConfigEntry = ConfigEntry[AciqCoordinator]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """aciq_thermostat.start_dry on the thermostat's climate entity."""
+    service.async_register_platform_entity_service(
+        hass, DOMAIN, SERVICE_START_DRY, entity_domain=CLIMATE_DOMAIN,
+        schema={vol.Optional(ATTR_DURATION): vol.All(vol.Coerce(int), vol.In(DRY_MINUTES))},
+        func="async_start_dry",
+    )
+    return True
 
 
 async def _async_register_card(hass: HomeAssistant) -> None:

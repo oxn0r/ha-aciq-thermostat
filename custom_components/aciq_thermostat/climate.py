@@ -1,7 +1,8 @@
 """Climate entity.
 
 Mode mapping (daemon -> HA): off->OFF, auto->AUTO, heat->HEAT, cool->COOL,
-fan_only->FAN_ONLY, emergency_heat->HEAT with preset "emergency_heat".
+fan_only->FAN_ONLY, dry->DRY (communicating systems), emergency_heat->HEAT with preset
+"emergency_heat".
 
 Auto follows the thermostat's own setting (dev_app temp_zone_control): one setpoint
 with the device deadband, or a heat/cool range (target_temperature_low/high).
@@ -38,6 +39,7 @@ from .const import (
     DOMAIN,
     DEV_AUTO,
     DEV_COOL,
+    DEV_DRY,
     DEV_EMERGENCY_HEAT,
     DEV_FAN_ONLY,
     DEV_HEAT,
@@ -68,6 +70,7 @@ DEV_TO_HVAC = {
     DEV_HEAT: HVACMode.HEAT,
     DEV_EMERGENCY_HEAT: HVACMode.HEAT,
     DEV_FAN_ONLY: HVACMode.FAN_ONLY,
+    DEV_DRY: HVACMode.DRY,
 }
 HVAC_TO_DEV = {v: k for k, v in DEV_TO_HVAC.items() if k != DEV_EMERGENCY_HEAT}
 
@@ -84,7 +87,6 @@ class AciqClimate(AciqEntity, ClimateEntity):
     _attr_name = None  # use the device name
     _attr_translation_key = "thermostat"
     _attr_precision = PRECISION_TENTHS
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.FAN_ONLY]
     _attr_fan_modes = FAN_MODES
     _attr_preset_modes = [PRESET_NONE, PRESET_EMERGENCY_HEAT]
     _attr_target_temperature_step = TEMP_STEP
@@ -129,6 +131,13 @@ class AciqClimate(AciqEntity, ClimateEntity):
             self._last_on_mode = self._dev_mode
 
     @property
+    def hvac_modes(self) -> list[HVACMode]:
+        modes = [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.FAN_ONLY]
+        if self.coordinator.dry_supported():
+            modes.append(HVACMode.DRY)
+        return modes
+
+    @property
     def _dev_mode(self) -> str:
         return str(self.data.get("mode", "unknown"))
 
@@ -137,7 +146,7 @@ class AciqClimate(AciqEntity, ClimateEntity):
         f = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.PRESET_MODE
         if self._range_in(self._dev_mode):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_EMERGENCY_HEAT):
+        elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_DRY, DEV_EMERGENCY_HEAT):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE
         if self._dev_mode in FAN_ADJUSTABLE_MODES and self.data.get("wiring") != "24v":
             f |= ClimateEntityFeature.FAN_MODE
@@ -225,6 +234,8 @@ class AciqClimate(AciqEntity, ClimateEntity):
         if compressor:
             if mode == DEV_COOL:
                 return HVACAction.COOLING
+            if mode == DEV_DRY:
+                return HVACAction.DRYING
             if mode in (DEV_HEAT, DEV_EMERGENCY_HEAT):
                 return HVACAction.HEATING
             return self._auto_compressor_action(eq)
@@ -282,7 +293,11 @@ class AciqClimate(AciqEntity, ClimateEntity):
         payload: dict[str, Any] = {}
         target = self._dev_mode
         if (hvac_mode := kwargs.get("hvac_mode")) is not None:
-            payload["mode"] = target = HVAC_TO_DEV[hvac_mode]
+            target = HVAC_TO_DEV[hvac_mode]
+            if target == DEV_DRY:           # Dry goes through Cool and is tracked: start it on its own
+                await self.async_set_hvac_mode(hvac_mode)
+            else:
+                payload["mode"] = target
         unit = "C" if self._celsius() else "F"
         low, high = kwargs.get(ATTR_TARGET_TEMP_LOW), kwargs.get(ATTR_TARGET_TEMP_HIGH)
         if low is not None or high is not None:
@@ -309,7 +324,15 @@ class AciqClimate(AciqEntity, ClimateEntity):
                 translation_domain=DOMAIN, translation_key="unsupported_mode",
                 translation_placeholders={"mode": str(hvac_mode)},
             )
+        if hvac_mode == HVACMode.DRY:
+            await self.coordinator.async_start_dry()
+            return
         await self.coordinator.async_control({"mode": HVAC_TO_DEV[hvac_mode]})
+
+    async def async_start_dry(self, duration: int | None = None) -> None:
+        """aciq_thermostat.start_dry: Dry for `duration` minutes (the thermostat's current
+        duration when left out)."""
+        await self.coordinator.async_start_dry(duration)
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         if self._dev_mode not in FAN_ADJUSTABLE_MODES:

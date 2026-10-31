@@ -33,6 +33,7 @@ function system(name, device = "dev1", states = {}) {
     [`sensor.${name}_indoor_coil_temperature`]: "indoor_coil_temperature",
     [`sensor.${name}_indoor_unit_t1_temperature`]: "indoor_unit_t1",
     [`sensor.${name}_compressor_frequency`]: "compressor_frequency", [`sensor.${name}_blower_stage`]: "blower_stage",
+    [`sensor.${name}_dry_time_left`]: "dry_time_left",
     [`binary_sensor.${name}_compressor`]: "compressor", [`binary_sensor.${name}_furnace`]: "furnace",
     [`binary_sensor.${name}_blower`]: "blower", [`binary_sensor.${name}_fault`]: "fault",
     [`sensor.${name}_fault_codes`]: "fault_codes",
@@ -55,6 +56,7 @@ function hassFor(sys, st) {
     [n("_compressor_frequency")]: s(st.hz ?? 0), [n("_blower_stage")]: s(st.stage ?? 0),
     [n("_compressor")]: s(st.comp ? "on" : "off"), [n("_furnace")]: s(st.furn ? "on" : "off"),
     [n("_blower")]: s(st.blow ? "on" : "off"), [n("_fault")]: s("off"), [n("_fault_codes")]: s("none"),
+    [n("_dry_time_left")]: s(st.left ?? 0),
     "sensor.furnace_filter_life_used": s(st.filter ?? 42),
   };
   return { entities: sys.entities, states };
@@ -126,6 +128,7 @@ const STATES = {
   cool: { mode: "cool", action: "cooling", comp: true, blow: true, hz: 47, stage: 2, coil: 46 },
   furnace: { mode: "heat", action: "heating", furn: true, blow: true, stage: 4, coil: 70 },
   idle: { mode: "heat", action: "idle" },
+  dry: { mode: "dry", action: "drying", comp: true, blow: true, hz: 40, stage: 1, coil: 45, left: 23 },
 };
 
 for (const [name, st] of Object.entries(STATES)) {
@@ -134,14 +137,17 @@ for (const [name, st] of Object.entries(STATES)) {
     const html = c.shadowRoot.innerHTML;
     const head = html.match(/<span class="head">([^<]*)<\/span>/)[1];
     assert.equal(head, { heat: "Heating · heat pump 58 Hz", cool: "Cooling · heat pump 47 Hz",
-      furnace: "Heating · gas furnace", idle: "Idle" }[name]);
+      furnace: "Heating · gas furnace", idle: "Idle", dry: "Drying · heat pump 40 Hz · 23 min left" }[name]);
     assert.equal(/class="spin" style="transform-origin:56px 134px/.test(html), !!st.comp);     // outdoor fan
     assert.equal(/class="spin" style="transform-origin:205px 193px/.test(html), !!st.blow);    // blower
     assert.equal(html.includes('class="flame"'), !!st.furn);
+    const cooling = name === "cool" || name === "dry";            // Dry runs the heat pump cooling
     if (st.comp) {
-      assert.ok(html.includes(`class="flow ${name === "cool" ? "runrev" : "run"}" d="M104 150 H170"`));
-      assert.ok(html.includes(`stroke="${name === "cool" ? "#2b8cff" : "#ff6b3d"}" d="M104 150 H170"`));
+      assert.ok(html.includes(`class="flow ${cooling ? "runrev" : "run"}" d="M104 150 H170"`));
+      assert.ok(html.includes(`stroke="${cooling ? "#2b8cff" : "#ff6b3d"}" d="M104 150 H170"`));
     }
+    assert.equal(html.includes('class="drip"'), name === "dry");
+    assert.equal(html.includes("Dry · 23 min left"), name === "dry");
     assert.ok(html.includes("Filter 42%"));
   });
 }

@@ -42,6 +42,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "daemon_start_time": c.daemon_start_time.isoformat() if c.daemon_start_time else None,
         "events": list(c.events),
         "commands": list(c.commands),
+        "dry_return": c.dry_return,
         "v24_events": list(c.v24_events),
         "auto_range": {
             "zone_control": (c.data or {}).get("dev", {}).get("zone_control"),

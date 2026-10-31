@@ -24,7 +24,8 @@
           "cool": "mdi:snowflake",
           "heat": "mdi:fire",
           "fan_only": "mdi:fan",
-          "emergency_heat": "mdi:fire-alert"
+          "emergency_heat": "mdi:fire-alert",
+          "dry": "mdi:water-percent"
         }
       },
       "fan_setting": {
@@ -111,6 +112,9 @@
       },
       "last_debug_report": {
         "default": "mdi:bug-check-outline"
+      },
+      "dry_time_left": {
+        "default": "mdi:timer-sand"
       }
     },
     "binary_sensor": {
@@ -181,6 +185,16 @@
           "on": "mdi:cloud-off-outline"
         }
       }
+    },
+    "select": {
+      "dry_duration": {
+        "default": "mdi:water-percent"
+      }
+    }
+  },
+  "services": {
+    "start_dry": {
+      "service": "mdi:water-percent"
     }
   }
 }

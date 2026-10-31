@@ -2,9 +2,7 @@
 # Official tiers are only awarded to core integrations; this documents compliance.
 rules:
   # Bronze
-  action-setup:
-    status: exempt
-    comment: No custom actions; standard climate/button actions only.
+  action-setup: done                   # aciq_thermostat.start_dry, registered in async_setup
   appropriate-polling: done            # 30 s DataUpdateCoordinator
   brands: done                         # brand/icon.png, brand/icon@2x.png
   common-modules: done                 # coordinator.py, entity.py

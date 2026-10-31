@@ -12,6 +12,7 @@ CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
 CONF_SYNC_CLOCK = "sync_clock"
+CONF_DRY_RETURN = "dry_return_previous"   # after Dry ends in Cool, put back the mode Dry started from
 
 DEFAULT_NAME = "Thermostat"
 DEFAULT_PORT = 8080
@@ -80,11 +81,18 @@ DEV_AUTO = "auto"
 DEV_COOL = "cool"
 DEV_HEAT = "heat"
 DEV_FAN_ONLY = "fan_only"
+DEV_DRY = "dry"
 DEV_EMERGENCY_HEAT = "emergency_heat"
 
 # Fan speed is only adjustable in these modes (the screen/app lock it otherwise)
 FAN_ADJUSTABLE_MODES = (DEV_COOL, DEV_HEAT)
 FAN_MODES = ["auto", "low", "medium", "high"]
+
+# Dry (dehumidify): communicating systems only. The screen runs a 15/30/45/60 min countdown and
+# only starts Dry from Cool; when Dry ends the thermostat is in Cool.
+DRY_MINUTES = (15, 30, 45, 60)
+SERVICE_START_DRY = "start_dry"
+ATTR_DURATION = "duration"
 
 # dev_app auto_state_t (rac_msg.h): what Auto mode is currently doing
 AUTO_STATE_NAMES = {0: "none", 1: "cool", 2: "heat", 3: "dry", 4: "fan"}

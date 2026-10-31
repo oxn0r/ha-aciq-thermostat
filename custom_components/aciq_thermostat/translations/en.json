@@ -59,13 +59,15 @@
           "auto_deploy": "Automatically (re)deploy the daemon over ADB",
           "extra_allowed_ips": "Extra IPs allowed to use the thermostat API (comma separated)",
           "block_egress": "Block the thermostat's cloud traffic at the source",
-          "sync_clock": "Keep the thermostat clock in sync with Home Assistant"
+          "sync_clock": "Keep the thermostat clock in sync with Home Assistant",
+          "dry_return_previous": "After Dry, return to the previous mode"
         },
         "data_description": {
           "auto_deploy": "Copy and start the local API daemon on the thermostat at startup and after it reboots. Turn off only if you manage the daemon yourself.",
           "extra_allowed_ips": "Home Assistant's own IP is always allowed. Add other machines (e.g. a workstation) that may use the thermostat API directly.",
           "block_egress": "Drops traffic from the thermostat to public internet addresses only. Local traffic is never blocked (your LAN, any private 10/172.16/192.168 network, link-local, VPN/Tailscale 100.64/10, Home Assistant, broadcast/multicast). Temporary rule on the thermostat: re-applied after reboots, removed when turned off, cleared by a power cycle. Stops the ACiQ cloud client's endless DNS retries; the ACiQ app will not work while on.",
-          "sync_clock": "With its internet blocked the thermostat can't use NTP and its clock drifts (and may start hours off after a reboot). Home Assistant checks it after reboots and every 6 hours and corrects it when it is 2 s or more off (temporary, nothing on the thermostat is changed permanently)."
+          "sync_clock": "With its internet blocked the thermostat can't use NTP and its clock drifts (and may start hours off after a reboot). Home Assistant checks it after reboots and every 6 hours and corrects it when it is 2 s or more off (temporary, nothing on the thermostat is changed permanently).",
+          "dry_return_previous": "Dry only runs from Cool, so starting it from Heat, Auto, Fan only or Off switches the thermostat to Cool first, and the thermostat stays in Cool when Dry ends (countdown done, below 65 °F, or cancelled). With this on, Home Assistant puts back the mode (and setpoint) Dry was started from. Only for Dry started from Home Assistant."
         }
       }
     },
@@ -119,7 +121,8 @@
           "heat": "Heat",
           "fan_only": "Fan only",
           "emergency_heat": "Emergency heat",
-          "unknown": "Unknown"
+          "unknown": "Unknown",
+          "dry": "Dry"
         }
       },
       "fan_setting": {
@@ -206,6 +209,14 @@
       },
       "last_debug_report": {
         "name": "Last debug report"
+      },
+      "dry_time_left": {
+        "name": "Dry time left",
+        "state_attributes": {
+          "ends_at": {
+            "name": "Ends at"
+          }
+        }
       }
     },
     "binary_sensor": {
@@ -265,6 +276,17 @@
       "block_cloud": {
         "name": "Block cloud traffic"
       }
+    },
+    "select": {
+      "dry_duration": {
+        "name": "Dry duration",
+        "state": {
+          "15": "15 min",
+          "30": "30 min",
+          "45": "45 min",
+          "60": "60 min"
+        }
+      }
     }
   },
   "exceptions": {
@@ -312,6 +334,21 @@
     },
     "fan_24v": {
       "message": "Fan speed can't be set on a 24 V thermostat (it has a single fan output)"
+    },
+    "dry_unsupported": {
+      "message": "Dry is only supported on communicating systems (wired to the indoor unit's HA/HB bus)."
+    }
+  },
+  "services": {
+    "start_dry": {
+      "name": "Start Dry",
+      "description": "Dehumidifies for a set time, like Dry Mode on the thermostat. Switches to Cool first if needed (the thermostat only starts Dry from Cool).",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "Minutes to dry: 15, 30, 45 or 60. Leave out to use the thermostat's current Dry duration."
+        }
+      }
     }
   }
 }

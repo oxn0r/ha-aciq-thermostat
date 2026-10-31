@@ -32,7 +32,7 @@ def gif(theme, k, name):
     q[0].save(out / name, save_all=True, append_images=q[1:], duration=50, loop=0, optimize=True)
     print(name, f"{w}x{h}", (out / name).stat().st_size // 1024, "KB")
 
-for k in ("heat", "cool", "furnace"):
+for k in ("heat", "cool", "furnace", "dry"):
     gif("light", k, f"system-card-{k}.gif")
 gif("dark", "heat", "system-card-heat-dark.gif")
 
@@ -41,6 +41,7 @@ for theme in ("light", "dark"):
     ims = cropped([src / f"still_{theme}_{k}.png" for k in ("heat", "cool", "furnace", "idle")], theme, 24)
     for k, im in zip(("heat", "cool", "furnace", "idle"), ims):
         im.save(out / f"system-card-{k}{sfx}.png", optimize=True)
+    cropped([src / f"still_{theme}_dry.png"], theme, 24)[0].save(out / f"system-card-dry{sfx}.png", optimize=True)
     w, h = ims[0].size
     g = Image.new("RGB", (w * 2, h * 2), BG[theme])
     for n, im in enumerate(ims):

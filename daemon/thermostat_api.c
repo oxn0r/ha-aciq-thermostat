@@ -146,6 +146,9 @@ struct thermostat_state {
     float ui_heat_sp;
     float ui_cool_sp;
     float raw_temp;
+    /* Dry (dehumidify) countdown, kept by meiju: duration and minutes left, -1 unknown */
+    int dry_minutes;
+    int dry_left;
 };
 
 /* Last known state; survives log rotation (setpoint unit defaults to F until seen) */
@@ -154,7 +157,8 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
                                                 .v24_unit = -1, .v24_current_mode = -1,
                                                 .v24_power = -1, .v24_kv_mode = -1, .v24_kv_emer = -1,
                                                 .v24_taux = -1, .ui_auto_state = -1, .ui_fan_state = -1,
-                                                .heating_max = -1, .cooling_min = -1};
+                                                .heating_max = -1, .cooling_min = -1,
+                                                .dry_minutes = -1, .dry_left = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
 /* Same command parser and keys as VERIFIED_FIRMWARE, from the app's commands on that build
@@ -387,6 +391,18 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             p = strstr(line, "comm_mode=");
             if (p && sscanf(p, "comm_mode=%d", &val) == 1 && !state->have_dev_state && !state->v24_seen)
                 state->comm_mode = val ? 2 : 1;
+        }
+
+        /* Dry countdown (meiju): "dehum_time_left=14, dehum_interval=15" in
+           thermostat_ui_notify_dev_state_update, "dehum_time_left:30, dehum_interval:30" in
+           thermostat_ui_dev_state_response. Left counts down once a minute while Dry runs and
+           shows the full duration otherwise. */
+        if (strstr(line, "dehum_time_left")) {
+            int val; char *p;
+            p = strstr(line, "dehum_time_left");
+            if (p && sscanf(p + 15, "%*[=:]%d", &val) == 1 && val >= 0 && val <= 240) state->dry_left = val;
+            p = strstr(line, "dehum_interval");
+            if (p && sscanf(p + 14, "%*[=:]%d", &val) == 1 && val > 0 && val <= 240) state->dry_minutes = val;
         }
 
         /* Parse wifi state */
@@ -658,7 +674,7 @@ static int build_equipment_json(const struct equipment *eqp, char *buf, size_t s
 
 /*
  * HVAC mode from dev_app AHU3 state (mapped 2026-10-19 from screen + app captures):
- *   power 0 -> off; mode 1 auto, 2 cool, 4 heat (elec_heat_only=1 -> emergency heat), 5 fan only
+ *   power 0 -> off; mode 1 auto, 2 cool, 3 dry, 4 heat (elec_heat_only=1 -> emergency heat), 5 fan only
  */
 const char *hvac_mode_string(const struct thermostat_state *st) {
     if (!st->have_dev_state) return "unknown";
@@ -666,6 +682,7 @@ const char *hvac_mode_string(const struct thermostat_state *st) {
     switch (st->dev_mode) {
         case 1: return "auto";
         case 2: return "cool";
+        case 3: return "dry";     /* screen UI mode 6 (Dry; 2026-10-31 capture) */
         case 4: return st->elec_heat_only ? "emergency_heat" : "heat";
         case 5: return "fan_only";
         default: return "unknown";
@@ -700,8 +717,8 @@ static long daemon_start_uptime = -1;
  * change constantly and would defeat long-polling.
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
-    char sig[512];
-    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+    char sig[768];
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
              hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
              st->zone_control, st->zone_lower, st->zone_upper,
@@ -712,7 +729,8 @@ static void state_id(const struct thermostat_state *st, const struct equipment *
              eq->ok, eq->ok ? (eq->compressor_hz + 2) / 5 : -1, eq->furnace_on, eq->blower_on,
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
              eq->fault_state, eq->protect_state, control_enabled,
-             eq->four_valve, eq->outdoor_fan_low, eq->outdoor_fan_high, eq->compressor_on, eq->oil_return);
+             eq->four_valve, eq->outdoor_fan_low, eq->outdoor_fan_high, eq->compressor_on, eq->oil_return,
+             st->dry_minutes, st->dry_left);
     uint32_t h = 2166136261u;                       /* FNV-1a */
     for (const char *c = sig; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; }
     snprintf(out, 9, "%08x", (unsigned)h);
@@ -776,7 +794,8 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
         "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_control\": %d, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
         "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f, \"deadband\": %d, \"temp_zone_mode\": %d, "
-        "\"auto_state\": %d, \"fan_state\": %d, \"heating_max\": %d, \"cooling_min\": %d},\n"
+        "\"auto_state\": %d, \"fan_state\": %d, \"heating_max\": %d, \"cooling_min\": %d, "
+        "\"dry_minutes\": %d, \"dry_time_left\": %d},\n"
         "  \"comm_mode\": \"%s\",\n"
         "  \"v24\": %s,\n"
         "  \"equipment\": %s\n"
@@ -804,6 +823,7 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         state.elec_heat, state.elec_heat_only, state.dev_wind,
         state.ui_heat_sp, state.ui_cool_sp, state.deadband, state.temp_zone_mode,
         state.ui_auto_state, state.ui_fan_state, state.heating_max, state.cooling_min,
+        state.dry_minutes, state.dry_left,
         state.comm_mode == 1 ? "communicating" : state.comm_mode == 2 ? "24v" : "unknown",
         v24_json,
         equip_json
@@ -941,6 +961,10 @@ static const struct mode_frame mode_frames[] = {
     {"auto",           {MODE_HDR,0x01,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x02,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0a,0,0,0x0e,0x93,0x33}},
     {"cool",           {MODE_HDR,0x02,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x02,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0a,0,0,0x0f,0x54,0x70}},
     {"heat",           {MODE_HDR,0x04,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x02,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0b,0,0,0x5f,0x5a,0x17}},
+    /* dry: the cool frame with mode 3 (the screen goes Cool -> Dry as mode 2 -> 3; tested from the
+       daemon 2026-10-31: the screen starts its countdown). Trailer zeroed: dev_app doesn't check it,
+       as for the zone frame. */
+    {"dry",            {MODE_HDR,0x03,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x02,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0a,0,0,0,0,0}},
     {"fan_only",       {MODE_HDR,0x05,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x02,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0a,0,0,0xf0,0x18,0xc8}},
     {"emergency_heat", {MODE_HDR,0x04,0x41,0,0,0,1,0x02,0x67,0,0,0,1,0x03,0x01,0,0,0,1,0x03,0x1f,0,0,0,1,0x0a,0,0,0xcf,0x9a,0x67}},
 };
@@ -959,7 +983,7 @@ int set_mode(const char *mode, char *error_buf, size_t error_size) {
         };
         return send_msmart_frame(off_frame, MSMART_FRAME_SIZE, error_buf, error_size);
     }
-    snprintf(error_buf, error_size, "mode must be off|auto|cool|heat|fan_only|emergency_heat");
+    snprintf(error_buf, error_size, "mode must be off|auto|cool|dry|heat|fan_only|emergency_heat");
     return -1;
 }
 
@@ -989,6 +1013,21 @@ int set_zone(int low, int high, int celsius, char *error_buf, size_t error_size)
     };
     f[23] = (unsigned char)(high * 2 + 50);
     f[29] = (unsigned char)(low * 2 + 50);
+    return send_msmart_frame(f, sizeof(f), error_buf, error_size);
+}
+
+/*
+ * Dry duration in minutes (15/30/45/60): msmart key 0x71 (MS_DEV_KEY_DEHUM_INTERVAL; parse_tlv_hbs_cmd ->
+ * rac_dev_send_dehum_interval), which dev_app passes on to the screen. The screen runs the countdown
+ * and uses this duration the next time Dry starts (tested 2026-10-31: 30 -> "30 min" on the screen).
+ */
+#define DRY_MINUTES_OK(m) ((m) == 15 || (m) == 30 || (m) == 45 || (m) == 60)
+int set_dry_minutes(int minutes, char *error_buf, size_t error_size) {
+    unsigned char f[23] = {
+        0xaa, 0x16, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0xd0, 0x01,
+        0x71, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    f[17] = (unsigned char)minutes;
     return send_msmart_frame(f, sizeof(f), error_buf, error_size);
 }
 
@@ -1274,10 +1313,12 @@ void handle_request(int client_fd) {
 
                 char mode[24], fan[16];
                 int temperature = 0, zlow = 0, zhigh = 0;
+                int dry_min = json_int(body_start, "dry_minutes");
                 if (parse_control_json(body_start, mode, sizeof(mode), &temperature, fan, sizeof(fan),
-                                       &zlow, &zhigh) == 0) {
+                                       &zlow, &zhigh) == 0 || dry_min != 0) {
                     char error_msg[256] = {0};
                     int success = 1;
+                    int dry_from_cool = 0;     /* Dry requested outside Cool: switch to Cool first */
 
                     if (!control_enabled) {
                         snprintf(error_msg, sizeof(error_msg),
@@ -1290,10 +1331,23 @@ void handle_request(int client_fd) {
                        0x54/0x55) and mode frames (0x02 tmpState, 0x67 aux -> cpEmerHeat, 0x01 power) as on
                        HBS; parse_tlv_24v_cmd -> set24VMode/set24VTemp (app capture 2026-10-28, setpoints
                        tested from HA 2026-10-28). One fan wire (G): no fan speed. */
-                    if (success && (mode[0] || fan[0])) {
+                    if (success && dry_min && !DRY_MINUTES_OK(dry_min)) {
+                        snprintf(error_msg, sizeof(error_msg), "dry_minutes must be 15|30|45|60");
+                        success = 0;
+                    }
+                    if (success && (mode[0] || fan[0] || dry_min)) {
                         struct thermostat_state cur;
                         get_state(&cur);
-                        if (cur.comm_mode == 2 && fan[0]) {
+                        int dry = strcmp(mode, "dry") == 0;
+                        if ((dry || dry_min) && cur.comm_mode != 1) {
+                            /* Dry is mapped on communicating systems only (2026-10-31) */
+                            snprintf(error_msg, sizeof(error_msg), "Dry is only supported on communicating systems");
+                            success = 0;
+                        } else if (dry && strcmp(hvac_mode_string(&cur), "dry") != 0 &&
+                                   strcmp(hvac_mode_string(&cur), "cool") != 0) {
+                            /* The screen only starts Dry from Cool; do the same */
+                            dry_from_cool = 1;
+                        } else if (cur.comm_mode == 2 && fan[0]) {
                             snprintf(error_msg, sizeof(error_msg),
                                      "24 V thermostat: fan speed can't be set (single fan output)");
                             success = 0;
@@ -1310,13 +1364,13 @@ void handle_request(int client_fd) {
                        Only allow it where verified; mode = requested mode or current one. */
                     /* Validate everything before sending anything (no half-applied commands) */
                     if (success && mode[0]) {
-                        static const char *valid[] = {"off","auto","cool","heat","fan_only","emergency_heat"};
+                        static const char *valid[] = {"off","auto","cool","dry","heat","fan_only","emergency_heat"};
                         int ok = 0;
                         for (size_t k = 0; k < sizeof(valid)/sizeof(valid[0]); k++)
                             if (strcmp(mode, valid[k]) == 0) ok = 1;
                         if (!ok) {
                             snprintf(error_msg, sizeof(error_msg),
-                                     "mode must be off|auto|cool|heat|fan_only|emergency_heat");
+                                     "mode must be off|auto|cool|dry|heat|fan_only|emergency_heat");
                             success = 0;
                         }
                     }
@@ -1380,6 +1434,15 @@ void handle_request(int client_fd) {
                         }
                     }
 
+                    /* Dry: Cool first when needed, then the duration, so the countdown uses it */
+                    if (success && dry_from_cool) {
+                        if (set_mode("cool", error_msg, sizeof(error_msg)) != 0) success = 0;
+                        else usleep(1000000);
+                    }
+                    if (success && dry_min > 0) {
+                        if (set_dry_minutes(dry_min, error_msg, sizeof(error_msg)) != 0) success = 0;
+                        else if (mode[0]) usleep(500000);
+                    }
                     /* Same order as the app: mode, then setpoint, then fan */
                     if (success && mode[0]) {
                         if (set_mode(mode, error_msg, sizeof(error_msg)) != 0) success = 0;
@@ -1405,8 +1468,9 @@ void handle_request(int client_fd) {
                         snprintf(body, sizeof(body),
                             "{\"success\": true, \"mode\": \"%s\", \"temperature\": %s, "
                             "\"target_temp_low\": %s, \"target_temp_high\": %s, \"fan\": \"%s\", "
-                            "\"unit\": \"%s\", \"message\": \"Control command sent\"}\n",
-                            mode, t, zl, zh, fan, therm_c ? "C" : "F");
+                            "\"unit\": \"%s\", \"dry_minutes\": %d, \"via_cool\": %s, "
+                            "\"message\": \"Control command sent\"}\n",
+                            mode, t, zl, zh, fan, therm_c ? "C" : "F", dry_min, dry_from_cool ? "true" : "false");
                         build_http_response(response, sizeof(response), 200, "OK",
                                            "application/json", body);
                     } else {
@@ -1416,7 +1480,7 @@ void handle_request(int client_fd) {
                     }
                 } else {
                     /* Parse error */
-                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, target_temp_low/high 60-86, mode off|auto|cool|heat|fan_only|emergency_heat, fan low|medium|high|auto\"}");
+                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, target_temp_low/high 60-86, mode off|auto|cool|dry|heat|fan_only|emergency_heat, fan low|medium|high|auto, dry_minutes 15|30|45|60\"}");
                     build_http_response(response, sizeof(response), 400, "Bad Request",
                                        "application/json", body);
                 }
@@ -1482,7 +1546,7 @@ void print_usage(const char *prog) {
     printf("       ?wait=<state_id>&timeout=<s>  long-poll: answer on change (max %d s)\n", MAX_WAIT_SECONDS);
     printf("  POST /api/control  - Set mode and temperature\n");
     printf("       Body: any of {\"temperature\": 60-86, \"target_temp_low\": 60-86, \"target_temp_high\": 60-86,\n");
-    printf("                     \"mode\": \"off|auto|cool|heat|fan_only|emergency_heat\", \"fan\": \"low|medium|high|auto\", \"unit\": \"F|C\"}\n");
+    printf("                     \"mode\": \"off|auto|cool|dry|heat|fan_only|emergency_heat\", \"fan\": \"low|medium|high|auto\", \"unit\": \"F|C\"}\n");
     printf("  GET  /health       - Health check\n");
     printf("\n");
     printf("Examples:\n");

@@ -36,6 +36,7 @@ const KEYS = {
   blower: ["binary_sensor", "blower", "_blower"],
   fault: ["binary_sensor", "fault", "_fault"],
   fault_codes: ["sensor", "fault_codes", "_fault_codes"],
+  dry_left: ["sensor", "dry_time_left", "_dry_time_left"],
   power: null,          // optional, not from the integration (e.g. an energy monitor)
   filter: null,         // optional % used sensor
 };
@@ -149,9 +150,12 @@ class AciqSystemCard extends HTMLElement {
     const power = this._num("power");
     const filt = this._num("filter");
     const unavailable = !climate || climate.state === "unavailable";
+    // Dry: the heat pump cools a cold coil with a slow blower to pull moisture out
+    const dry = mode === "dry" || climate?.state === "dry";
+    const dryLeft = this._num("dry_left");
 
-    // Refrigerant direction: in heat the hot gas goes indoors, in cool it comes back.
-    const heatingHP = comp && action !== "cooling";
+    // Refrigerant direction: in heat the hot gas goes indoors, in cool (and Dry) it comes back.
+    const heatingHP = comp && action !== "cooling" && action !== "drying" && !dry;
     const refColor = !comp ? "var(--divider-color, #555)" : heatingHP ? "#ff6b3d" : "#2b8cff";
     const step = (d) => Math.round(d * 20) / 20;   // 0.05 s steps: small Hz changes keep the same speed
     const fanDur = comp ? step(Math.max(0.35, 2.4 - (hz / HZ_MAX) * 2)) : 0;
@@ -161,10 +165,11 @@ class AciqSystemCard extends HTMLElement {
     let headline;
     if (unavailable) headline = "Thermostat unavailable";
     else if (furn) headline = "Heating · gas furnace";
+    else if (dry) headline = `Drying${comp ? ` · heat pump ${hz.toFixed(0)} Hz` : ""}${dryLeft ? ` · ${dryLeft.toFixed(0)} min left` : ""}`;
     else if (comp) headline = `${action === "cooling" ? "Cooling" : "Heating"} · heat pump ${hz.toFixed(0)} Hz`;
     else if (blow) headline = "Fan only";
     else headline = mode === "off" ? "System off" : "Idle";
-    const headColor = furn ? "#ff5a36" : comp ? refColor : "var(--secondary-text-color)";
+    const headColor = furn ? "#ff5a36" : comp || dry ? (dry ? "#2b8cff" : refColor) : "var(--secondary-text-color)";
 
     const title = this._config.title ?? "HVAC system";
     const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ") : "");
@@ -181,6 +186,7 @@ class AciqSystemCard extends HTMLElement {
   .chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
   .chip.warn { background: #f9a825; color: #000; }
   .chip.bad { background: #c62828; color: #fff; }
+  .chip.dry { background: #2b8cff; color: #fff; }
   svg { width: 100%; height: auto; display: block; margin-top: 4px; }
   text { fill: var(--primary-text-color); font-family: inherit; font-size: 12px; }
   .sub { fill: var(--secondary-text-color); font-size: 10px; }
@@ -200,8 +206,10 @@ class AciqSystemCard extends HTMLElement {
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes dash { to { stroke-dashoffset: -32; } }      /* 2 x the .flow dash period (6+10) */
   @keyframes airdash { to { stroke-dashoffset: -30; } }   /* 2 x the .air dash period (3+12) */
+  .drip { animation: drip 1.5s ease-in infinite; }
+  @keyframes drip { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(12px); opacity: 0; } }
   @keyframes flick { from { transform: scaleY(.85); } to { transform: scaleY(1.1); } }
-  @media (prefers-reduced-motion: reduce) { .spin, .run, .runrev, .flame { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .spin, .run, .runrev, .flame, .drip { animation: none; } }
 </style>
 <ha-card>
   <div class="top">
@@ -210,6 +218,7 @@ class AciqSystemCard extends HTMLElement {
   </div>
   <div class="chips">
     <span class="chip">Mode ${cap(mode)}</span>
+    ${dry && dryLeft ? `<span class="chip dry hit" data-k="dry_left">Dry · ${dryLeft.toFixed(0)} min left</span>` : ""}
     ${stage ? `<span class="chip">Blower stage ${stage}</span>` : ""}
     ${power !== null ? `<span class="chip">${power >= 1000 ? (power / 1000).toFixed(2) + " kW" : power.toFixed(0) + " W"}</span>` : ""}
     ${filt !== null ? `<span class="chip hit${filt >= 100 ? " bad" : filt >= 90 ? " warn" : ""}" data-k="filter">Filter ${filt.toFixed(0)}%</span>` : ""}
@@ -242,6 +251,7 @@ class AciqSystemCard extends HTMLElement {
       <rect class="box" x="170" y="96" width="70" height="40" rx="4"/>
       <path d="M180 132 L205 102 L230 132" fill="none" stroke="${this._tempColor(coil)}" stroke-width="3"/>
       <text x="205" y="128" text-anchor="middle" class="sub">${this._t("indoor_coil", 0)}</text>
+      ${dry ? [188, 222].map((x) => `<g class="drip"><path d="M${x} 112 q-3.5 5 0 7 q3.5 -2 0 -7z" fill="#6aa9ff"/></g>`).join("") : ""}
     </g>
     <g class="hit" data-k="furnace">
       <rect class="box" x="170" y="136" width="70" height="40" rx="4"/>

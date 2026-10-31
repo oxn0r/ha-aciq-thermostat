@@ -3,7 +3,8 @@
   "name": "ACiQ Thermostat (Local)",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "logbook"
   ],
   "codeowners": [
     "@oxn0r"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -20,6 +21,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
@@ -36,7 +38,7 @@ from .entity import AciqEntity
 
 PARALLEL_UPDATES = 0  # coordinator-based, read-only
 
-MODES = ["off", "auto", "cool", "heat", "fan_only", "emergency_heat", "unknown"]
+MODES = ["off", "auto", "cool", "dry", "heat", "fan_only", "emergency_heat", "unknown"]
 
 
 def _eq(key: str) -> Callable[[dict[str, Any], dict[str, Any]], Any]:
@@ -70,6 +72,14 @@ def _zone(key: str) -> Callable[[dict[str, Any], dict[str, Any]], Any]:
     return lambda d, eq: d.get("dev", {}).get(key) if _auto_setpoint(d) == AUTO_SETPOINT_RANGE else None
 
 
+def _dry_left(d: dict[str, Any], eq: dict[str, Any]) -> Any:
+    # the screen shows the full duration when Dry isn't running: report 0 then
+    if d.get("mode") != "dry":
+        return 0
+    left = d.get("ui", {}).get("dry_time_left")
+    return left if isinstance(left, int) and left >= 0 else None
+
+
 def _deadband(d: dict[str, Any], eq: dict[str, Any]) -> Any:
     db = d.get("ui", {}).get("deadband")
     return db if isinstance(db, int) and db >= 0 else None
@@ -100,6 +110,10 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
     AciqSensorDescription(key="mode", translation_key="mode", device_class=SensorDeviceClass.ENUM,
                           options=MODES,
                           value_fn=lambda d, eq: d.get("mode") if d.get("mode") in MODES else "unknown"),
+    AciqSensorDescription(key="dry_time_left", translation_key="dry_time_left", v24=False,
+                          device_class=SensorDeviceClass.DURATION,
+                          native_unit_of_measurement=UnitOfTime.MINUTES,
+                          value_fn=_dry_left),
     AciqSensorDescription(key="fan_setting", translation_key="fan_setting", v24=False,
                           device_class=SensorDeviceClass.ENUM, options=[*FAN_MODES, "unknown"],
                           value_fn=lambda d, eq: d.get("fan") if d.get("fan") in FAN_MODES else "unknown"),
@@ -237,6 +251,12 @@ class AciqSensor(AciqEntity, SensorEntity):
         key = self.entity_description.key
         if key == "indoor_unit_firmware":
             return self.coordinator.versions or None
+        if key == "dry_time_left":
+            left = self.native_value
+            if self.data.get("mode") != "dry" or not isinstance(left, int):
+                return {"ends_at": None}
+            return {"ends_at": (dt_util.utcnow() + timedelta(minutes=left)).replace(second=0, microsecond=0)
+                    .isoformat()}
         if key == "compressor_frequency":
             # raw indoor-unit bits a defrost cycle should flip, kept in history until a defrost is mapped
             return self.equipment.get("defrost_signals") or None

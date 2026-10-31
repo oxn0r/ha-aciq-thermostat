@@ -11,6 +11,19 @@
   that picks the first ACiQ thermostat.
 - The card finds entities through the device's entity registry (by translation key), so it works whatever the device
   is named. The `prefix:` and `entities:` options from the standalone card keep working.
+- **Dry (dehumidify)** on communicating systems ([#10](https://github.com/oxn0r/ha-aciq-thermostat/issues/10)): the
+  thermostat's Dry Mode, mapped from its screen and tested from the daemon on a TL04-1.
+  - **Dry** in the climate entity's modes (it showed as *unknown* before), with *drying* as the action while the
+    compressor runs. Like the screen, Dry starts from Cool: from another mode the thermostat is switched to Cool first
+    (noted in the logbook).
+  - **Dry duration** select (15/30/45/60 min): the thermostat's own setting, shared with the screen.
+  - **Dry time left** sensor following the screen's countdown, with an `ends_at` attribute.
+  - **`aciq_thermostat.start_dry`** action with an optional duration.
+  - Option **After Dry, return to the previous mode** (on): when Dry that Home Assistant started ends in Cool
+    (countdown, the 65 °F cut-off, or cancelled), the mode and setpoint it was started from are put back.
+  - The system card shows Dry: blue refrigerant flow, water dripping off the coil, and the time left.
+  - Daemon: mode 3 = Dry, `dry_minutes` control (msmart key 0x71), the countdown in `ui`; Dry and `dry_minutes` are
+    refused on 24 V units.
 ### Fixed (since the standalone card v0.2.2)
 - **Smooth animation:** every sensor update rebuilt the card and restarted its animations from the first frame, and
   the air-duct dashes jumped at each loop. Animations now keep their place across updates, and every loop ends

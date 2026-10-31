@@ -24,7 +24,7 @@ the ACiQ cloud app. It has no Home Assistant integration and no local API, and e
 to put a tiny local API on the thermostat, then talks to it directly. No cloud, no account, no extra hardware.
 
 **What you get in Home Assistant:**
-- 🌡️ A normal thermostat card: Off / Auto / Heat / Cool / Fan, emergency heat, fan speed, setpoint
+- 🌡️ A normal thermostat card: Off / Auto / Heat / Cool / Fan / Dry, emergency heat, fan speed, setpoint
 - 🔥 **Is the gas furnace burning? Is the heat pump running, and how hard?** (compressor Hz)
 - 🌤️ **Outdoor temperature** from the outdoor unit, plus coil temperatures, blower state and fault codes
 - Works with HomeKit, automations, dashboards, energy tracking
@@ -139,19 +139,22 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Keep the thermostat clock in sync with Home Assistant | on | Corrects drift ≥ 2 s after reboots and every 6 h (the thermostat can't use NTP with its internet blocked) |
 | Block the thermostat's internet at the source | off | Runtime firewall rule on the thermostat: only LAN/HA traffic leaves it (see [Router flooded](#router-flooded-with-dns-lookups)) |
 | Extra allowed IPs | (empty) | Other hosts allowed to use the API directly (HA's own IP is always allowed) |
+| After Dry, return to the previous mode | on | When Dry started from Home Assistant ends, put back the mode (and setpoint) it was started from; off = stay in Cool, like the screen (see [Dry](#dry-dehumidify)) |
 
 **Reconfigure** (⋮ → Reconfigure) changes the IP or ports. It re-runs the checks and refuses if a different thermostat answers.
 
 ## Entities
 | Entity | Type | Notes |
 |---|---|---|
-| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
+| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only / Dry (communicating systems) · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
 | **Compressor frequency** | sensor (Hz) | inverter speed; 0 = off. Attributes: raw indoor-unit bits for mapping defrost ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)) |
 | Blower stage | sensor | 0 off, 1 low … 4 (high stages seen with the furnace) |
 | Setpoint · Mode · Fan setting | sensor | |
+| **Dry duration** | select | 15 / 30 / 45 / 60 min: the thermostat's own Dry duration, the same value the screen shows (communicating systems) |
+| **Dry time left** | sensor (min) | the screen's Dry countdown; 0 when not drying. Attribute `ends_at` (communicating systems) |
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
@@ -175,12 +178,30 @@ outdated copy of the accessory, and both handles move the same single setpoint (
 entity. Apple Home then shows **"Set to"** with one handle. The reset accessory may need to be put back in its room
 and scenes.
 
-The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *fan* (blower only), *idle* or *off*.
+The climate entity's **hvac_action** combines furnace, compressor and blower: *heating*, *cooling*, *drying*, *fan* (blower only), *idle* or *off*.
+
+### Dry (dehumidify)
+On communicating systems, the thermostat's **Dry Mode** runs the heat pump with a colder coil and a slower blower to
+pull more moisture out of the air, for a set time. Home Assistant controls it like the screen does:
+- **Start it:** pick **Dry** on the thermostat card (or `climate.set_hvac_mode: dry`), which runs for the current
+  **Dry duration**; or use the **Start Dry** action with a duration.
+- **Cool first:** the thermostat only starts Dry from Cool. From Heat, Auto, Fan only or Off, Home Assistant switches
+  to Cool first and notes it in the logbook.
+- **Countdown:** the screen counts down; **Dry time left** follows it. Dry also ends by itself when the room drops
+  below 65 °F, or when the mode is changed. The setpoint can be changed while drying.
+- **Afterwards:** the thermostat is in Cool. With *After Dry, return to the previous mode* on (the default), Home
+  Assistant puts back the mode (and setpoint) Dry was started from, for Dry it started itself. Dry started on the
+  screen is left alone.
 
 ## Actions, triggers and conditions
-The integration adds no custom actions. Use the standard `climate.*` actions (`set_temperature`, `set_hvac_mode`,
-`set_fan_mode`, `set_preset_mode`, `turn_on`, `turn_off`) and `button.press`. Triggers and conditions use the
-regular state, numeric-state and device triggers on the entities above.
+Use the standard `climate.*` actions (`set_temperature`, `set_hvac_mode`, `set_fan_mode`, `set_preset_mode`,
+`turn_on`, `turn_off`), `select.select_option` (Dry duration) and `button.press`. One custom action:
+
+| Action | Fields | Does |
+|---|---|---|
+| `aciq_thermostat.start_dry` | target: the thermostat's climate entity; `duration` (optional): 15, 30, 45 or 60 | Starts Dry for that many minutes (the current Dry duration when left out), switching to Cool first if needed |
+
+Triggers and conditions use the regular state, numeric-state and device triggers on the entities above.
 
 ## Data updates
 **Push-style:** the integration long-polls the on-device daemon (`/api/state?wait=…`), which answers as soon as the
@@ -204,15 +225,16 @@ The integration includes the **ACiQ System Card**, an animated schematic of a du
 
 ![System card, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-all-dark.gif)
 
-| Heat pump heating | Cooling | Gas furnace |
-|---|---|---|
-| ![Heating](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-heat.gif) | ![Cooling](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-cool.gif) | ![Gas furnace](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-furnace.gif) |
+| Heat pump heating | Cooling | Gas furnace | Dry |
+|---|---|---|---|
+| ![Heating](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-heat.gif) | ![Cooling](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-cool.gif) | ![Gas furnace](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-furnace.gif) | ![Dry](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-dry.gif) |
 
 </details>
 
 - The outdoor fan spins while the compressor runs, faster at higher compressor frequency.
 - Refrigerant lines turn red when heating and blue when cooling, with the flow reversing in cool.
 - A flame shows when the gas furnace is on, and the blower spins while it runs.
+- In Dry, the lines run blue as in cooling, water drips off the coil, and the header and a chip show the time left.
 - The house shows room temperature, setpoint and humidity. Chips show mode, blower stage, fault, and optionally power and filter use.
 - Tap any part to open that entity.
 
@@ -273,6 +295,29 @@ automation:
           message: "HVAC fault: {{ states('sensor.family_room_fault_codes') }}"
 ```
 
+**Dry out a muggy house while cooling:**
+```yaml
+automation:
+  - alias: Dry when humid
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.family_room_humidity
+        above: 60
+        for: "00:10:00"
+    conditions:
+      - condition: state
+        entity_id: climate.family_room
+        state: cool
+    actions:
+      - action: aciq_thermostat.start_dry
+        target:
+          entity_id: climate.family_room
+        data:
+          duration: 30
+```
+After the 30 minutes the thermostat is back in Cool. Started from Heat or Auto instead, it returns to that mode
+(option *After Dry, return to the previous mode*).
+
 **Night setback:**
 ```yaml
 automation:
@@ -300,7 +345,9 @@ runtime (*history_stats*) to estimate gas use; alert when the outdoor coil stays
   (a few minutes): download diagnostics soon after the problem.
 - In **Heat**, a setpoint far above room temperature makes the system go straight to the furnace (dual-fuel staging).
   That's the equipment's behaviour, not the integration's.
-- Fan speed can't be changed in Auto or Fan-only (the thermostat locks it).
+- Fan speed can't be changed in Auto, Fan-only or Dry (the thermostat locks it).
+- **Dry** is new in 1.2.0, for communicating systems only (24 V thermostats don't offer it). Tested on the verified
+  firmware; on other builds, please report how it behaves.
 - Schedules, vacation mode and installer settings aren't exposed.
 - The thermostat's adbd stalls when **two** ADB hosts connect at once. Keep other ADB tools disconnected.
 - A firmware update could close ADB. Block the thermostat's internet access to prevent updates (see [Security](#security)).

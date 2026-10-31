@@ -120,6 +120,39 @@ def test_returns_on_change(d: Daemon) -> None:
     assert dt < 3.5, dt
 
 
+DRY_NOTIFY = ("{ts} user.info meiju: thermostat_ui_notify_dev_state_update] hour_type:0, volume:11, bluetooth_open:1, "
+              "wifi_open:1, wifi_connected:1, wifi_rssi:45, deadband:4, temp_zone_mode:0, heating_max=86, "
+              "cooling_min=60, setpoint_range_open=0, aux_heat_open=1, dehum_time_left={left}, dehum_interval={mins}, "
+              "weather_temp:20\n")
+
+
+def test_dry_mode_and_countdown(d: Daemon) -> None:
+    sid = d.get("/api/state")["state_id"]
+    threading.Timer(0.5, d.append, [AHU3.format(ts=ts(), power=1, mode=3, auto=2, sp=75)
+                                    + DRY_NOTIFY.format(ts=ts(), left=30, mins=30)]).start()
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["mode"] == "dry" and s["setpoint"] == 75, s
+    assert (s["ui"]["dry_minutes"], s["ui"]["dry_time_left"]) == (30, 30) and dt < 3.5, (s["ui"], dt)
+    sid = s["state_id"]                                     # the countdown ticking wakes long-polls
+    threading.Timer(0.5, d.append, [DRY_NOTIFY.format(ts=ts(), left=29, mins=30)]).start()
+    s, dt = timed(lambda: d.get(f"/api/state?wait={sid}&timeout=10"))
+    assert s["ui"]["dry_time_left"] == 29 and dt < 3.5, (s["ui"], dt)
+    d.append("{ts} user.info meiju: thermostat_ui_dev_state_response] hour_type:0, deadband:4, "
+             "dehum_time_left:45, dehum_interval:45, weather_temp:17.5\n".format(ts=ts()))
+    assert (d.get("/api/state")["ui"]["dry_minutes"]) == 45
+
+
+def test_dry_control_validation(d: Daemon) -> None:
+    for body in ({"dry_minutes": 20}, {"dry_minutes": 20, "mode": "dry"}):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and "15|30|45|60" in r["error"], (body, r)
+    for body in ({"mode": "dry"}, {"dry_minutes": 30}, {"dry_minutes": 60, "mode": "dry"}):
+        code, r = d.post("/api/control", body)                          # passes validation (no IPC here)
+        assert all(w not in r.get("error", "") for w in ("communicating", "mode must", "15|30")), (body, r)
+    code, r = d.post("/api/control", {"mode": "dry", "fan": "low"})
+    assert code == 400 and "fan cannot be changed in mode dry" in r["error"], r
+
+
 def test_stale_id_answers_now(d: Daemon) -> None:
     _, dt = timed(lambda: d.get("/api/state?wait=deadbeef&timeout=20"))
     assert dt < 1.5, dt
@@ -373,6 +406,12 @@ def _t_24v_control(d: Daemon) -> None:
     assert "deadband" in r["error"], r
 
 
+def _t_24v_no_dry(d: Daemon) -> None:
+    for body in ({"mode": "dry"}, {"dry_minutes": 30}):
+        code, r = d.post("/api/control", body)
+        assert code == 400 and "communicating" in r["error"], (body, r)
+
+
 def _t_24v_no_aux(d: Daemon) -> None:
     code, r = d.post("/api/control", {"mode": "emergency_heat"})
     assert code == 400 and "no aux heat" in r["error"], r
@@ -387,7 +426,7 @@ def _t_24v_celsius_setpoint(d: Daemon) -> None:
     assert "between" not in r.get("error", ""), r
 
 
-V24_TESTS = [(_t_24v_control, lambda: v24()), (_t_24v_no_aux, lambda: v24().replace("Aaux=1", "Aaux=0")),
+V24_TESTS = [(_t_24v_control, lambda: v24()), (_t_24v_no_dry, lambda: v24()), (_t_24v_no_aux, lambda: v24().replace("Aaux=1", "Aaux=0")),
              (_t_24v_celsius_setpoint, lambda: v24().replace("cpTempUnit:1", "cpTempUnit:0")),
              (_t_24v_heat_and_off, lambda: v24()), (_t_24v_parsed, lambda: v24()), (_t_24v_long_poll, lambda: v24()),
              (_t_meiju_comm_mode_only, lambda: UI.format(ts=ts(), db=4, zm=1).replace("comm_mode=0", "comm_mode=1"))]
