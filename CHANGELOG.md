@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 — 2026-11-12
+## 1.3.0b1 — 2026-11-12 (test build)
 ### Added
 - **Dehumidification** switch: turns the screen's *Dehumidification* setting on and off from Home Assistant
   (cooling tuned to remove more moisture, separate from Dry). On only in Cool, like the screen; off in any mode.
