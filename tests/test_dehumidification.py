@@ -75,6 +75,30 @@ async def test_no_switch_without_support(hass, aioclient_mock, mock_deployer, st
     assert hass.states.get("switch.thermostat_block_cloud_traffic") is not None
 
 
+async def test_switch_added_when_support_appears(hass, aioclient_mock, mock_deployer, state) -> None:
+    """Right after a daemon update the humi fields are -1 until the first AHU3 line: no restart needed."""
+    e = await _setup(hass, aioclient_mock, HumiDaemon(_humi(state, -1, fun=-1)))
+    assert hass.states.get(ENTITY) is None
+    _push(e, _humi(state, 0))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY).state == "off"
+    _push(e, _humi(state, 1))                                      # not added twice
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY).state == "on"
+
+
+async def test_unavailable_while_it_cannot_turn_on(hass, aioclient_mock, mock_deployer, state) -> None:
+    """HA's toggle flips itself and stays flipped when an action is refused, so it's greyed out instead."""
+    e = await _setup(hass, aioclient_mock, HumiDaemon(_humi(state, 0, mode="heat")))
+    assert hass.states.get(ENTITY).state == "unavailable"
+    _push(e, _humi(state, 1, mode="heat"))                         # on outside Cool: can still be turned off
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY).state == "on"
+    _push(e, _humi(state, 0))                                      # Cool
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY).state == "off"
+
+
 async def test_no_switch_on_older_daemon(hass, aioclient_mock, mock_deployer, state) -> None:
     await _setup(hass, aioclient_mock, FakeDaemon(state))          # no humi fields at all
     assert hass.states.get(ENTITY) is None

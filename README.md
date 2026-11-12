@@ -146,7 +146,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Setpoint · Mode · Fan setting | sensor | |
 | **Dry duration** | select | 15 / 30 / 45 / 60 min: the thermostat's own Dry duration, the same value the screen shows (communicating systems) |
 | **Dry time left** | sensor (min) | the screen's Dry countdown; 0 when not drying. Attribute `ends_at` (communicating systems) |
-| **Dehumidification** | switch | the screen's *Dehumidification* switch: cooling tuned to remove more moisture (not Dry). Turns on in Cool only, like the screen; off in any mode. Only on systems whose indoor unit has it ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)) |
+| **Dehumidification** | switch | the screen's *Dehumidification* switch: cooling tuned to remove more moisture (not Dry). Turns on in Cool only, like the screen (greyed out while off outside Cool); off in any mode. Only on systems whose indoor unit has it ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)) |
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |

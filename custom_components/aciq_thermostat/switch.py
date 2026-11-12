@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -22,10 +22,22 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     c = entry.runtime_data
-    entities: list[SwitchEntity] = [BlockCloudSwitch(c)]
-    if dehumidification_supported(c.data or {}):
-        entities.append(DehumidificationSwitch(c))
-    async_add_entities(entities)
+    async_add_entities([BlockCloudSwitch(c)])
+
+    # The daemon learns whether the indoor unit has Dehumidification only from its first AHU3
+    # status line, which can come after setup (e.g. right after a daemon update), so the switch
+    # is added as soon as support shows up rather than only at setup.
+    added = False
+
+    @callback
+    def _add_dehumidification() -> None:
+        nonlocal added
+        if not added and dehumidification_supported(c.data or {}):
+            added = True
+            async_add_entities([DehumidificationSwitch(c)])
+
+    _add_dehumidification()
+    entry.async_on_unload(c.async_add_listener(_add_dehumidification))
 
 
 def dehumidification_supported(data: dict[str, Any]) -> bool:
@@ -79,12 +91,17 @@ class BlockCloudSwitch(AciqEntity, SwitchEntity):
 class DehumidificationSwitch(AciqEntity, SwitchEntity):
     """The screen's Dehumidification switch (issue #11): cooling tuned to remove more moisture,
     not Dry. On only in Cool, like the screen; off in any mode. Created only on indoor units that
-    report the feature."""
+    report the feature. Unavailable while it can't be turned on (off and not in Cool): HA's toggle
+    flips itself on press and doesn't flip back when the action is refused."""
 
     _attr_translation_key = "dehumidification"
 
     def __init__(self, coordinator: AciqCoordinator) -> None:
         super().__init__(coordinator, "dehumidification")
+
+    @property
+    def available(self) -> bool:
+        return super().available and (self.data.get("mode") == DEV_COOL or self.is_on is True)
 
     @property
     def is_on(self) -> bool | None:
