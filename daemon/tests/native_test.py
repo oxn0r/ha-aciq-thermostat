@@ -323,6 +323,7 @@ def v24(tt: float = 71.238998, hi: int = 74, sp: int = 68) -> str:
 def test_communicating_mode_reported(d: Daemon) -> None:
     s = d.get("/api/state")
     assert s["comm_mode"] == "communicating" and s["v24"] == {"seen": False}, s
+    assert (s["dev"]["humi_ctrl"], s["dev"]["humi_ctrl_fun"]) == (-1, -1), s["dev"]   # no humi line on 20260314
 
 
 def _t_24v_parsed(d: Daemon) -> None:
@@ -454,6 +455,15 @@ def _t_firmware_0821(d: Daemon) -> None:
     assert "control disabled" not in r.get("error", ""), r                      # passes the gate (no IPC here)
 
 
+def _t_dehumidification_0821(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert (s["dev"]["humi_ctrl"], s["dev"]["humi_ctrl_fun"]) == (0, 1), s["dev"]
+    line = AHU3_0821.splitlines()[-1].replace("humi_ctrl:0", "humi_ctrl:1").replace("humi_set:0", "humi_set:102")
+    threading.Timer(0.5, d.append, [line.format(ts=ts()) + "\n"]).start()
+    s2 = d.get(f"/api/state?wait={s['state_id']}")                  # toggling it wakes the long poll
+    assert s2["state_id"] != s["state_id"] and s2["dev"]["humi_ctrl"] == 1, s2["dev"]
+
+
 def _t_unknown_firmware(d: Daemon) -> None:
     s = d.get("/api/state")
     assert not s["control_enabled"], s
@@ -493,6 +503,7 @@ V24_TESTS.append((_t_equipment_0821, lambda: AHU3.format(ts=ts(), power=1, mode=
 V24_TESTS.append((_t_equipment_canary, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106",
                   (0x5fa3c, STATE_0821)))                                     # verified build's address: no data
 V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
+V24_TESTS.append((_t_dehumidification_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
 V24_TESTS.append((_t_unknown_firmware, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20270101.000000"))
 
 

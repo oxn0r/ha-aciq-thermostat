@@ -57,7 +57,9 @@ CONTROL_FIRMWARE = {
 # Diagnostics: recent dev_app/meiju state and command lines from the thermostat log (no
 # msmart lines, which carry network details)
 LOG_PATTERN = ("RAC_DEV_AHU3_STATE|parse_tlv|set24V|setTemp|msmart_cmd_ctrl|process_24v_cmd_a3|"
-               "kv_parse|page_ui_refresh_background|thermostat_ui_dev_state_response")
+               "kv_parse|page_ui_refresh_background|thermostat_ui_dev_state_response|"
+               # Dehumidification switch, screen -> indoor unit (issue #11)
+               "humi_ctrl|pack_0xc6_extern|dev_ctrl_dehumidify")
 LOG_TAIL_LINES = 1500        # kept after dropping unchanged state lines
 LOG_READ_LINES = 20000       # cap on what is read from the thermostat (both log files are ~1 MB)
 # State lines the thermostat repeats every second or so: kept only when they change

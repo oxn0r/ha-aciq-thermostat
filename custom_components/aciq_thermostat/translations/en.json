@@ -247,6 +247,9 @@
       "power": {
         "name": "Power"
       },
+      "dehumidification": {
+        "name": "Dehumidification"
+      },
       "control_enabled": {
         "name": "Local control enabled"
       },

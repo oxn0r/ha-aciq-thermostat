@@ -148,6 +148,12 @@
       "power": {
         "default": "mdi:power"
       },
+      "dehumidification": {
+        "default": "mdi:water-off",
+        "state": {
+          "on": "mdi:water-percent"
+        }
+      },
       "control_enabled": {
         "default": "mdi:shield-check",
         "state": {

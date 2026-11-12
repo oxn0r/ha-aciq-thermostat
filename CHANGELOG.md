@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2 — 2026-11-12
+### Added
+- **Dehumidification** binary sensor: shows the screen's *Dehumidification* switch (cooling tuned to remove more
+  moisture, separate from Dry), read-only. Created only on systems whose indoor unit reports the feature
+  ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)).
+- Daemon: `dev.humi_ctrl` / `dev.humi_ctrl_fun` in `/api/state`, from the thermostat's indoor-unit state.
+### Changed
+- The debug report keeps the log lines for the Dehumidification switch, so the command it sends can be mapped.
+
 ## 1.2.1 — 2026-10-31
 ### Added
 - Option **Hide fan speed on the thermostat** (off by default): removes fan speed from the climate entity, so it's

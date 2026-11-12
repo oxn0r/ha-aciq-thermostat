@@ -149,6 +149,9 @@ struct thermostat_state {
     /* Dry (dehumidify) countdown, kept by meiju: duration and minutes left, -1 unknown */
     int dry_minutes;
     int dry_left;
+    /* AHU3 dehumidification (cooling tuned for moisture): on/off and whether the indoor unit has it, -1 unknown */
+    int humi_ctrl;
+    int humi_ctrl_fun;
 };
 
 /* Last known state; survives log rotation (setpoint unit defaults to F until seen) */
@@ -158,7 +161,8 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
                                                 .v24_power = -1, .v24_kv_mode = -1, .v24_kv_emer = -1,
                                                 .v24_taux = -1, .ui_auto_state = -1, .ui_fan_state = -1,
                                                 .heating_max = -1, .cooling_min = -1,
-                                                .dry_minutes = -1, .dry_left = -1};
+                                                .dry_minutes = -1, .dry_left = -1,
+                                                .humi_ctrl = -1, .humi_ctrl_fun = -1};
 /* Control frames were verified on this firmware only; other builds -> read-only (override: -F) */
 #define VERIFIED_FIRMWARE "tina.tangly.20260314.152301"
 /* Same command parser and keys as VERIFIED_FIRMWARE, from the app's commands on that build
@@ -358,6 +362,15 @@ static void parse_line(const char *line, struct thermostat_state *state) {
             if (p && sscanf(p, "elec_heat_only:%d", &val) == 1) state->elec_heat_only = val;
             p = strstr(line, "compressor_state =");
             if (p && sscanf(p, "compressor_state =%d", &val) == 1) state->compressor_state = val;
+        }
+        /* RAC_DEV_AHU3_STATE, humi_ctrl:1, humi_ctrl_fun:1, humi_set:102 (firmware 20260821, issue #11) */
+        if (strstr(line, "RAC_DEV_AHU3_STATE, humi_ctrl:")) {
+            int on, fun;
+            char *p = strstr(line, "humi_ctrl:");
+            if (p && sscanf(p, "humi_ctrl:%d, humi_ctrl_fun:%d", &on, &fun) == 2) {
+                state->humi_ctrl = on ? 1 : 0;
+                state->humi_ctrl_fun = fun ? 1 : 0;
+            }
         }
         if (strstr(line, "RAC_DEV_AHU3_STATE, temp_zone_control:")) {
             float val; char *p; int zc;
@@ -718,7 +731,7 @@ static long daemon_start_uptime = -1;
  */
 static void state_id(const struct thermostat_state *st, const struct equipment *eq, char out[9]) {
     char sig[768];
-    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+    snprintf(sig, sizeof(sig), "%s|%c|%.1f|%d|%d|%d|%d|%d|%.0f|%.0f|%d|%.0f|%.0f|%d|%.0f|%.0f|%.0f|%d|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
              hvac_mode_string(st), st->dev_temp_unit ? 'F' : 'C', st->setpoint, st->dev_power, st->have_dev_state ? st->dev_wind : -1,
              st->elec_heat, st->elec_heat_only, st->dev_auto_state, st->ui_heat_sp, st->ui_cool_sp,
              st->zone_control, st->zone_lower, st->zone_upper,
@@ -730,7 +743,7 @@ static void state_id(const struct thermostat_state *st, const struct equipment *
              eq->blower_speed, eq->fault[0], eq->fault[1], eq->fault[2], eq->fault[3],
              eq->fault_state, eq->protect_state, control_enabled,
              eq->four_valve, eq->outdoor_fan_low, eq->outdoor_fan_high, eq->compressor_on, eq->oil_return,
-             st->dry_minutes, st->dry_left);
+             st->dry_minutes, st->dry_left, st->humi_ctrl, st->humi_ctrl_fun);
     uint32_t h = 2166136261u;                       /* FNV-1a */
     for (const char *c = sig; *c; c++) { h ^= (unsigned char)*c; h *= 16777619u; }
     snprintf(out, 9, "%08x", (unsigned)h);
@@ -792,7 +805,8 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         "  \"uptime_s\": %ld,\n"
         "  \"daemon_uptime_s\": %ld,\n"
         "  \"dev\": {\"seen\": %s, \"power\": %d, \"mode_raw\": %d, \"auto_state\": %d, "
-        "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_control\": %d, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d},\n"
+        "\"source\": \"%s\", \"temp_set\": %.1f, \"zone_control\": %d, \"zone_lower\": %.1f, \"zone_upper\": %.1f, \"elec_heat\": %d, \"elec_heat_only\": %d, \"wind_speed\": %d, "
+        "\"humi_ctrl\": %d, \"humi_ctrl_fun\": %d},\n"
         "  \"ui\": {\"heat_setpoint\": %.0f, \"cool_setpoint\": %.0f, \"deadband\": %d, \"temp_zone_mode\": %d, "
         "\"auto_state\": %d, \"fan_state\": %d, \"heating_max\": %d, \"cooling_min\": %d, "
         "\"dry_minutes\": %d, \"dry_time_left\": %d},\n"
@@ -820,7 +834,7 @@ static int build_state_json_from(const struct thermostat_state *stp, const struc
         state.have_dev_state ? "true" : "false", state.dev_power, state.dev_mode,
         state.dev_auto_state, state.state_from_memory ? "memory" : "log", state.dev_temp_set,
         state.zone_control, state.zone_lower, state.zone_upper,
-        state.elec_heat, state.elec_heat_only, state.dev_wind,
+        state.elec_heat, state.elec_heat_only, state.dev_wind, state.humi_ctrl, state.humi_ctrl_fun,
         state.ui_heat_sp, state.ui_cool_sp, state.deadband, state.temp_zone_mode,
         state.ui_auto_state, state.ui_fan_state, state.heating_max, state.cooling_min,
         state.dry_minutes, state.dry_left,
