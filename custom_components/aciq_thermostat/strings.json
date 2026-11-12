@@ -247,9 +247,6 @@
       "power": {
         "name": "Power"
       },
-      "dehumidification": {
-        "name": "Dehumidification"
-      },
       "control_enabled": {
         "name": "Local control enabled"
       },
@@ -280,6 +277,9 @@
     "switch": {
       "block_cloud": {
         "name": "Block cloud traffic"
+      },
+      "dehumidification": {
+        "name": "Dehumidification"
       }
     },
     "select": {
@@ -342,6 +342,9 @@
     },
     "dry_unsupported": {
       "message": "Dry is only supported on communicating systems (wired to the indoor unit's HA/HB bus)."
+    },
+    "dehumidification_cool": {
+      "message": "Dehumidification can only be turned on in Cool, like on the thermostat's screen."
     }
   },
   "services": {

@@ -148,12 +148,6 @@
       "power": {
         "default": "mdi:power"
       },
-      "dehumidification": {
-        "default": "mdi:water-off",
-        "state": {
-          "on": "mdi:water-percent"
-        }
-      },
       "control_enabled": {
         "default": "mdi:shield-check",
         "state": {
@@ -189,6 +183,12 @@
         "default": "mdi:cloud-check-outline",
         "state": {
           "on": "mdi:cloud-off-outline"
+        }
+      },
+      "dehumidification": {
+        "default": "mdi:water-off",
+        "state": {
+          "on": "mdi:water-percent"
         }
       }
     },

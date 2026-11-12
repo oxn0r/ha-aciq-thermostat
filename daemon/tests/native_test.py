@@ -464,6 +464,26 @@ def _t_dehumidification_0821(d: Daemon) -> None:
     assert s2["state_id"] != s["state_id"] and s2["dev"]["humi_ctrl"] == 1, s2["dev"]
 
 
+def _t_dehumidification_control(d: Daemon) -> None:
+    code, r = d.post("/api/control", {"dehumidification": True})               # fixture is in Heat
+    assert code == 400 and "only be turned on in Cool" in r["error"], r
+    code, r = d.post("/api/control", {"dehumidification": True, "temperature": 70})
+    assert code == 400 and "on its own" in r["error"], r
+    code, r = d.post("/api/control", {"dehumidification": False})              # off: any mode
+    assert "supported" not in r.get("error", "") and "Cool" not in r.get("error", ""), r
+    d.append(AHU3_0821.splitlines()[0].replace("mode: 4", "mode: 2").format(ts=ts()) + "\n")
+    time.sleep(0.5)
+    assert d.get("/api/state")["mode"] == "cool"
+    code, r = d.post("/api/control", {"dehumidification": True})
+    assert "supported" not in r.get("error", "") and "Cool" not in r.get("error", ""), r   # gate passed (no IPC here)
+
+
+def _t_dehumidification_unsupported(d: Daemon) -> None:
+    for on in (True, False):
+        code, r = d.post("/api/control", {"dehumidification": on})
+        assert code == 400 and "not supported" in r["error"], r
+
+
 def _t_unknown_firmware(d: Daemon) -> None:
     s = d.get("/api/state")
     assert not s["control_enabled"], s
@@ -504,6 +524,10 @@ V24_TESTS.append((_t_equipment_canary, lambda: AHU3_0821.format(ts=ts()), "tina.
                   (0x5fa3c, STATE_0821)))                                     # verified build's address: no data
 V24_TESTS.append((_t_firmware_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
 V24_TESTS.append((_t_dehumidification_0821, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
+V24_TESTS.append((_t_dehumidification_control, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20260821.063106"))
+V24_TESTS.append((_t_dehumidification_unsupported, lambda: AHU3_0821.format(ts=ts()).replace("humi_ctrl_fun:1", "humi_ctrl_fun:0"),
+                  "tina.tangly.20260821.063106"))
+V24_TESTS.append((_t_dehumidification_unsupported, lambda: v24(), "tina.tangly.20260821.063106"))
 V24_TESTS.append((_t_unknown_firmware, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20270101.000000"))
 
 

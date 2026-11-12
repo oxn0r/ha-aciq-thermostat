@@ -146,7 +146,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Setpoint · Mode · Fan setting | sensor | |
 | **Dry duration** | select | 15 / 30 / 45 / 60 min: the thermostat's own Dry duration, the same value the screen shows (communicating systems) |
 | **Dry time left** | sensor (min) | the screen's Dry countdown; 0 when not drying. Attribute `ends_at` (communicating systems) |
-| **Dehumidification** | binary_sensor | the screen's *Dehumidification* switch (cooling tuned to remove more moisture; not Dry). Read-only for now; only on systems whose indoor unit has it ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)) |
+| **Dehumidification** | switch | the screen's *Dehumidification* switch: cooling tuned to remove more moisture (not Dry). Turns on in Cool only, like the screen; off in any mode. Only on systems whose indoor unit has it ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)) |
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
@@ -193,7 +193,7 @@ pull more moisture out of the air, for a set time. Home Assistant controls it li
 
 ## Actions, triggers and conditions
 Use the standard `climate.*` actions (`set_temperature`, `set_hvac_mode`, `set_fan_mode`, `set_preset_mode`,
-`turn_on`, `turn_off`), `select.select_option` (Dry duration) and `button.press`. One custom action:
+`turn_on`, `turn_off`), `switch.turn_on`/`turn_off` (Dehumidification, Block cloud traffic), `select.select_option` (Dry duration) and `button.press`. One custom action:
 
 | Action | Fields | Does |
 |---|---|---|

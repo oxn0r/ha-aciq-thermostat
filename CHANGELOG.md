@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-11-12
+### Added
+- **Dehumidification** switch: turns the screen's *Dehumidification* setting on and off from Home Assistant
+  (cooling tuned to remove more moisture, separate from Dry). On only in Cool, like the screen; off in any mode.
+  Created only on indoor units that report the feature
+  ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)).
+- Daemon: `{"dehumidification": true|false}` on `/api/control`, sent as the app's key 0x72 (3 on, 2 off), as seen
+  from the Midea app on build 20260821. Refused when the indoor unit doesn't report the feature, or to turn it on
+  outside Cool.
+### Changed
+- Replaces 1.2.2's read-only *Dehumidification* binary sensor, which is removed.
+
 ## 1.2.2 — 2026-11-12
 ### Added
 - **Dehumidification** binary sensor: shows the screen's *Dehumidification* switch (cooling tuned to remove more

@@ -1,4 +1,4 @@
-"""Switch: block the thermostat's cloud/internet traffic at the source (opt-in)."""
+"""Switches: block the thermostat's cloud/internet traffic (opt-in); Dehumidification."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
-from .const import CONF_BLOCK_EGRESS
+from .const import CONF_BLOCK_EGRESS, DEV_COOL, DOMAIN
 from .coordinator import AciqCoordinator
 from .entity import AciqEntity
 
@@ -20,7 +21,16 @@ PARALLEL_UPDATES = 1
 async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities([BlockCloudSwitch(entry.runtime_data)])
+    c = entry.runtime_data
+    entities: list[SwitchEntity] = [BlockCloudSwitch(c)]
+    if dehumidification_supported(c.data or {}):
+        entities.append(DehumidificationSwitch(c))
+    async_add_entities(entities)
+
+
+def dehumidification_supported(data: dict[str, Any]) -> bool:
+    """The indoor unit reports the feature (AHU3 humi_ctrl_fun); communicating systems only."""
+    return bool(data.get("dev", {}).get("humi_ctrl_fun") == 1)
 
 
 class BlockCloudSwitch(AciqEntity, SwitchEntity):
@@ -64,3 +74,26 @@ class BlockCloudSwitch(AciqEntity, SwitchEntity):
             return
         await self.coordinator.async_set_block_egress(value)
         self.async_write_ha_state()
+
+
+class DehumidificationSwitch(AciqEntity, SwitchEntity):
+    """The screen's Dehumidification switch (issue #11): cooling tuned to remove more moisture,
+    not Dry. On only in Cool, like the screen; off in any mode. Created only on indoor units that
+    report the feature."""
+
+    _attr_translation_key = "dehumidification"
+
+    def __init__(self, coordinator: AciqCoordinator) -> None:
+        super().__init__(coordinator, "dehumidification")
+
+    @property
+    def is_on(self) -> bool | None:
+        return {0: False, 1: True}.get(self.data.get("dev", {}).get("humi_ctrl"))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if self.data.get("mode") != DEV_COOL:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="dehumidification_cool")
+        await self.coordinator.async_control({"dehumidification": True})
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_control({"dehumidification": False})

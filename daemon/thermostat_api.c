@@ -1045,6 +1045,21 @@ int set_dry_minutes(int minutes, char *error_buf, size_t error_size) {
     return send_msmart_frame(f, sizeof(f), error_buf, error_size);
 }
 
+/*
+ * Dehumidification switch (cooling tuned for moisture; not Dry), issue #11: the app sends msmart key
+ * 0x72 (MS_DEV_KEY_HUM_CONTROL) with 3 = on, 2 = off; parse_tlv_hbs_cmd keeps bit 0 and sends the
+ * indoor unit its full state (send_cmd_flag 2). Seen from the app on build 20260821 (2026-11-12);
+ * the screen only offers it in Cool, on indoor units that report humi_ctrl_fun.
+ */
+int set_dehumidification(int on, char *error_buf, size_t error_size) {
+    unsigned char f[23] = {
+        0xaa, 0x16, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0xd0, 0x01,
+        0x72, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    f[17] = on ? 0x03 : 0x02;
+    return send_msmart_frame(f, sizeof(f), error_buf, error_size);
+}
+
 /* Modes where fan speed control is verified (app/screen allow it) */
 #define FAN_ALLOWED_MODES "cool,heat"  /* verified 2026-10-19; auto + fan_only lock fan in UI */
 static int fan_allowed_in(const char *mode) {
@@ -1106,6 +1121,19 @@ static int json_int(const char *json, const char *key) {
     const char *p = strstr(json, pat);
     if (p && (p = strchr(p + strlen(pat), ':'))) return atoi(p + 1);
     return 0;
+}
+
+/* true/false (or 1/0) for key; -1 when absent or anything else */
+static int json_bool(const char *json, const char *key) {
+    char pat[32];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p || !(p = strchr(p + strlen(pat), ':'))) return -1;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "true", 4) == 0 || *p == '1') return 1;
+    if (strncmp(p, "false", 5) == 0 || *p == '0') return 0;
+    return -1;
 }
 
 int parse_control_json(const char *json, char *mode, size_t msz, int *temperature, char *fan, size_t fsz,
@@ -1328,8 +1356,10 @@ void handle_request(int client_fd) {
                 char mode[24], fan[16];
                 int temperature = 0, zlow = 0, zhigh = 0;
                 int dry_min = json_int(body_start, "dry_minutes");
-                if (parse_control_json(body_start, mode, sizeof(mode), &temperature, fan, sizeof(fan),
-                                       &zlow, &zhigh) == 0 || dry_min != 0) {
+                int dehum = json_bool(body_start, "dehumidification");
+                int other = parse_control_json(body_start, mode, sizeof(mode), &temperature, fan, sizeof(fan),
+                                               &zlow, &zhigh) == 0 || dry_min != 0;
+                if (other || dehum >= 0) {
                     char error_msg[256] = {0};
                     int success = 1;
                     int dry_from_cool = 0;     /* Dry requested outside Cool: switch to Cool first */
@@ -1345,6 +1375,24 @@ void handle_request(int client_fd) {
                        0x54/0x55) and mode frames (0x02 tmpState, 0x67 aux -> cpEmerHeat, 0x01 power) as on
                        HBS; parse_tlv_24v_cmd -> set24VMode/set24VTemp (app capture 2026-10-28, setpoints
                        tested from HA 2026-10-28). One fan wire (G): no fan speed. */
+                    if (success && dehum >= 0) {
+                        struct thermostat_state cur;
+                        get_state(&cur);
+                        if (other) {
+                            snprintf(error_msg, sizeof(error_msg), "send dehumidification on its own");
+                            success = 0;
+                        } else if (cur.comm_mode != 1 || cur.humi_ctrl_fun != 1) {
+                            snprintf(error_msg, sizeof(error_msg),
+                                     "Dehumidification is not supported by this indoor unit");
+                            success = 0;
+                        } else if (dehum && strcmp(hvac_mode_string(&cur), "cool") != 0) {
+                            /* The screen only offers it in Cool */
+                            snprintf(error_msg, sizeof(error_msg), "Dehumidification can only be turned on in Cool");
+                            success = 0;
+                        } else if (set_dehumidification(dehum, error_msg, sizeof(error_msg)) != 0) {
+                            success = 0;
+                        }
+                    }
                     if (success && dry_min && !DRY_MINUTES_OK(dry_min)) {
                         snprintf(error_msg, sizeof(error_msg), "dry_minutes must be 15|30|45|60");
                         success = 0;
@@ -1482,9 +1530,10 @@ void handle_request(int client_fd) {
                         snprintf(body, sizeof(body),
                             "{\"success\": true, \"mode\": \"%s\", \"temperature\": %s, "
                             "\"target_temp_low\": %s, \"target_temp_high\": %s, \"fan\": \"%s\", "
-                            "\"unit\": \"%s\", \"dry_minutes\": %d, \"via_cool\": %s, "
+                            "\"unit\": \"%s\", \"dry_minutes\": %d, \"via_cool\": %s, \"dehumidification\": %s, "
                             "\"message\": \"Control command sent\"}\n",
-                            mode, t, zl, zh, fan, therm_c ? "C" : "F", dry_min, dry_from_cool ? "true" : "false");
+                            mode, t, zl, zh, fan, therm_c ? "C" : "F", dry_min, dry_from_cool ? "true" : "false",
+                            dehum < 0 ? "null" : dehum ? "true" : "false");
                         build_http_response(response, sizeof(response), 200, "OK",
                                            "application/json", body);
                     } else {
@@ -1494,7 +1543,7 @@ void handle_request(int client_fd) {
                     }
                 } else {
                     /* Parse error */
-                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, target_temp_low/high 60-86, mode off|auto|cool|dry|heat|fan_only|emergency_heat, fan low|medium|high|auto, dry_minutes 15|30|45|60\"}");
+                    strcpy(body, "{\"error\": \"Expected any of: temperature 60-86, target_temp_low/high 60-86, mode off|auto|cool|dry|heat|fan_only|emergency_heat, fan low|medium|high|auto, dry_minutes 15|30|45|60, dehumidification true|false\"}");
                     build_http_response(response, sizeof(response), 400, "Bad Request",
                                        "application/json", body);
                 }

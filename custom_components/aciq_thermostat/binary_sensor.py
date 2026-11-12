@@ -7,15 +7,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import AciqConfigEntry
+from .const import DOMAIN
 from .coordinator import AciqCoordinator
 from .entity import AciqEntity
 
@@ -28,8 +31,6 @@ class AciqBinaryDescription(BinarySensorEntityDescription):
     needs_equipment: bool = False
     # communicating-only (dev_app memory / AHU3 fields) or 24 V-only (terminal outputs)
     v24: bool | None = None
-    # created only when the system reports the feature (checked at setup)
-    supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 def _out(d: dict[str, Any], *terminals: str) -> bool | None:
@@ -72,11 +73,6 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
     AciqBinaryDescription(key="power", translation_key="power",
                           device_class=BinarySensorDeviceClass.POWER,
                           value_fn=lambda d, eq: bool(d.get("dev", {}).get("power"))),
-    # AHU3 humi_ctrl: the screen's Dehumidification switch (cooling tuned for moisture), not Dry.
-    # Read-only until a command path is confirmed (issue #11); only on indoor units that have it.
-    AciqBinaryDescription(key="dehumidification", translation_key="dehumidification", v24=False,
-                          supported_fn=lambda d: d.get("dev", {}).get("humi_ctrl_fun") == 1,
-                          value_fn=lambda d, eq: {0: False, 1: True}.get(d.get("dev", {}).get("humi_ctrl"))),
     AciqBinaryDescription(key="control_enabled", translation_key="control_enabled",
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=lambda d, eq: bool(d.get("control_enabled"))),
@@ -103,10 +99,12 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: AciqConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     c = entry.runtime_data
-    data = c.data or {}
-    is_24v = data.get("wiring") == "24v"
-    async_add_entities(AciqBinarySensor(c, desc) for desc in BINARY
-                       if for_unit(desc, is_24v) and (desc.supported_fn is None or desc.supported_fn(data)))
+    is_24v = (c.data or {}).get("wiring") == "24v"
+    # 1.2.2's read-only Dehumidification sensor became a switch in 1.3.0
+    reg = er.async_get(hass)
+    if old := reg.async_get_entity_id(BINARY_SENSOR_DOMAIN, DOMAIN, f"{entry.unique_id}_dehumidification"):
+        reg.async_remove(old)
+    async_add_entities(AciqBinarySensor(c, desc) for desc in BINARY if for_unit(desc, is_24v))
 
 
 class AciqBinarySensor(AciqEntity, BinarySensorEntity):
