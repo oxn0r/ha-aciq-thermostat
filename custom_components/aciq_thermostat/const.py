@@ -48,16 +48,16 @@ CLOCK_MAX_OFFSET = 2.0
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
 VERIFIED_FIRMWARE = "tina.tangly.20260314.152301"
 VERIFIED_DEV_APP_SHA256 = "63ff55d09f90b0ef896ed5cedccffac50e6a1a4b47efd220e2cb3235ffcabeb3"
-# Other builds with the same state lines and command parser (app commands compared in the log):
-# control and equipment data (the daemon has each build's g_self_state address). firmware -> dev_app sha256
+# Other builds with the same state lines and command parser (app commands compared in the log, or
+# dev_app code fingerprints): control and equipment data (the daemon has each build's g_self_state
+# address). firmware -> dev_app sha256
 CONTROL_FIRMWARE = {
     "tina.tangly.20260821.063106": "b5a264939ec23c97e9e386cc07b89aca0fd2e91ce49dd91083631a8854f550c4",  # #8
+    "tina.tangly.20251105.024132": "18184bc6ba270902881b10b21dfde778e0727a2ef87754c7317a3d729cfdb3fa",  # #12
 }
 # Builds whose state can be read (same status lines; the daemon has the g_self_state address and
 # layout) but whose command parser hasn't been compared yet: set up read-only, control stays off.
-READ_ONLY_FIRMWARE = {
-    "tina.tangly.20251105.024132": "18184bc6ba270902881b10b21dfde778e0727a2ef87754c7317a3d729cfdb3fa",  # #12
-}
+READ_ONLY_FIRMWARE: dict[str, str] = {}
 
 # Diagnostics: recent dev_app/meiju state and command lines from the thermostat log (no
 # msmart lines, which carry network details)

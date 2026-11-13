@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1b4 — 2026-11-13 (test build)
+### Added
+- **Control** on build `tina.tangly.20251105.024132`
+  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)): mode, setpoint, Auto range, fan speed and
+  Dehumidification. Its `dev_app` command path was compared with the verified build's using the debug report's
+  code fingerprints: every difference is two 4-byte-smaller structs or log line numbers; no command key or
+  check changed. Daemon: that build now enables control; the integration accepts its `dev_app` as supported.
+
 ## 1.3.1b3 — 2026-11-13 (test build)
 ### Added
 - Debug report: per-block hashes (4 instructions each, addresses masked) of ten `dev_app` functions on the

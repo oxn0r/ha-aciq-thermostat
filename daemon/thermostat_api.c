@@ -168,9 +168,11 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
 /* Same command parser and keys as VERIFIED_FIRMWARE, from the app's commands on that build
    (issue #8, 2026-10-28). The integration checks dev_app's hash. */
 #define CONTROL_FIRMWARE "tina.tangly.20260821.063106"
-/* Older build (issue #12, 2026-11-13): same AHU3 lines; dev_app's command parser not compared
-   yet, so control stays off. Equipment data from its own g_self_state address and layout. */
-#define READ_ONLY_FIRMWARE "tina.tangly.20251105.024132"
+/* Older build (issue #12, 2026-11-13): same AHU3 lines. Its app-command path (parser, mode,
+   setpoint, fan, Auto range and Dehumidification handlers) matches VERIFIED_FIRMWARE's code
+   except for two 4-byte-smaller structs and log line numbers (dev_app code fingerprints,
+   2026-11-13). Equipment data from its own g_self_state address and layout. */
+#define CONTROL_FIRMWARE_1105 "tina.tangly.20251105.024132"
 static char firmware_id[64] = "unknown";
 static int control_enabled = 0;
 #define MAX_ALLOWED 8
@@ -531,7 +533,7 @@ static void read_firmware_id(void) {
  * fixed address in these non-PIE builds. Offsets from dev_app DWARF; meanings verified
  * 2026-10-19 with supervised furnace and heat-pump runs. CONTROL_FIRMWARE's dev_state_t
  * (572 bytes) keeps the first 312 bytes unchanged and only appends members (DWARF from
- * issue #8's debug report, 2026-10-29, taken while heating). READ_ONLY_FIRMWARE's (308 bytes,
+ * issue #8's debug report, 2026-10-29, taken while heating). CONTROL_FIRMWARE_1105's (308 bytes,
  * DWARF from issue #12's debug report) is the same up to byte 239, then lacks state_0xc6_ex's
  * two outdoor_mute members (+ padding): every member from state_0xD8 on sits 4 bytes earlier.
  * Only read on these builds, and only if the layout canary matches.
@@ -540,7 +542,7 @@ static void read_firmware_id(void) {
 #define G_SELF_STATE_ADDR_0821 0x62c1c
 #define G_SELF_STATE_ADDR_1105 0x5f340
 #define G_SELF_STATE_SIZE 312
-#define G_SELF_STATE_TAIL 240          /* first member that moves on READ_ONLY_FIRMWARE */
+#define G_SELF_STATE_TAIL 240          /* first member that moves on CONTROL_FIRMWARE_1105 */
 struct equipment {
     int ok;
     int t4, t1, t2a, t3;           /* raw: degC = (raw - 40) / 2; 0/255 = invalid */
@@ -605,7 +607,7 @@ static void read_equipment(struct equipment *eq) {
     int shift = 0;                       /* added to offsets >= G_SELF_STATE_TAIL */
     if (strcmp(firmware_id, VERIFIED_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR;
     else if (strcmp(firmware_id, CONTROL_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR_0821;
-    else if (strcmp(firmware_id, READ_ONLY_FIRMWARE) == 0) { addr = G_SELF_STATE_ADDR_1105; shift = -4; }
+    else if (strcmp(firmware_id, CONTROL_FIRMWARE_1105) == 0) { addr = G_SELF_STATE_ADDR_1105; shift = -4; }
     else return;
     unsigned char raw[G_SELF_STATE_SIZE] = {0}, b[G_SELF_STATE_SIZE] = {0};
     const ssize_t want = G_SELF_STATE_SIZE + shift;
@@ -1663,7 +1665,8 @@ int main(int argc, char *argv[]) {
     read_firmware_id();
     daemon_start_uptime = read_uptime();
     control_enabled = force_control || strcmp(firmware_id, VERIFIED_FIRMWARE) == 0 ||
-                      strcmp(firmware_id, CONTROL_FIRMWARE) == 0;
+                      strcmp(firmware_id, CONTROL_FIRMWARE) == 0 ||
+                      strcmp(firmware_id, CONTROL_FIRMWARE_1105) == 0;
 
     /* Set up signal handlers */
     signal(SIGINT, handle_signal);

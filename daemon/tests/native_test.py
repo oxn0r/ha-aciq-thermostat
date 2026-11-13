@@ -558,8 +558,17 @@ V24_TESTS.append((_t_equipment_1105, lambda: AHU3.format(ts=ts(), power=0, mode=
                   "tina.tangly.20251105.024132", (0x5f340, STATE_1105)))
 V24_TESTS.append((_t_equipment_canary, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
                   "tina.tangly.20251105.024132", (0x5fa3c, STATE_1105)))               # wrong address: no data
-V24_TESTS.append((_t_unknown_firmware, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
-                  "tina.tangly.20251105.024132"))                                       # read-only: control off
+
+
+def _t_control_1105(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["control_enabled"], s
+    code, r = d.post("/api/control", {"temperature": 70})
+    assert "control disabled" not in r.get("error", ""), r                      # passes the gate (no IPC here)
+
+
+V24_TESTS.append((_t_control_1105, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
+                  "tina.tangly.20251105.024132"))                                       # control since 1.3.1b4
 
 
 def main() -> int:

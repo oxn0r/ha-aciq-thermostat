@@ -47,8 +47,16 @@ async def test_preflight_control_firmware(thermo: FakeThermostat) -> None:
     assert not (await Deployer("h", 5555).preflight()).passed
 
 
-async def test_preflight_read_only_firmware(thermo: FakeThermostat) -> None:
-    thermo.firmware = "tina.tangly.20251105.024132"                  # issue #12
+async def test_preflight_1105_control(thermo: FakeThermostat) -> None:
+    thermo.firmware = "tina.tangly.20251105.024132"                  # issue #12: control since 1.3.1b4
+    thermo.dev_app_sha = CONTROL_FIRMWARE[thermo.firmware]
+    res = await Deployer("h", 5555).preflight()
+    assert res.passed and ": supported" in res.summary() and "read-only" not in res.summary()
+
+
+async def test_preflight_read_only_firmware(thermo: FakeThermostat, monkeypatch: pytest.MonkeyPatch) -> None:
+    thermo.firmware = "tina.tangly.20990101.000000"                  # a build known for reading only
+    monkeypatch.setitem(READ_ONLY_FIRMWARE, thermo.firmware, "ab" * 32)
     thermo.dev_app_sha = READ_ONLY_FIRMWARE[thermo.firmware]
     res = await Deployer("h", 5555).preflight()
     assert res.passed and ": supported read-only" in res.summary()
