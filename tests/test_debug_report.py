@@ -178,3 +178,47 @@ async def test_debug_report_without_debug_info(thermo: FakeThermostat) -> None:
     thermo.dev_app_bytes = b"not an elf"
     r = await Deployer("h", 5555).debug_report()
     assert "parse failed" in r["dev_app"]["error"]
+
+
+def _arm_elf(code: bytes, addr: int, func: str = "parse_tlv_hbs_cmd") -> bytes:
+    """ELF32 ARM: one .text section at addr holding code, one ARM-mode FUNC symbol covering it."""
+    strtab = b"\0" + func.encode() + b"\0"
+    sym = bytes(16) + struct.pack("<IIIBBH", 1, addr, len(code), 0x12, 0, 1)
+    secs = [("", 0, b"", 0, 0), (".text", 1, code, addr, 0), (".symtab", 2, sym, 0, 3), (".strtab", 3, strtab, 0, 0)]
+    shstr = b"\0" + b"".join(n.encode() + b"\0" for n, *_ in secs[1:]) + b".shstrtab\0"
+    secs.append((".shstrtab", 3, shstr, 0, 0))
+    data = bytearray(52)
+    offs = []
+    for _, _, content, _, _ in secs:
+        offs.append(len(data))
+        data += content
+    shoff = len(data)
+    for i, (name, typ, content, a, link) in enumerate(secs):
+        nm = 0 if not name else shstr.index(name.encode() + b"\0")
+        data += struct.pack("<IIIIIIIIII", nm, typ, 6 if typ == 1 else 0, a, offs[i], len(content), link, 0, 0, 0)
+    data[:52] = b"\x7fELF" + bytes([1, 1, 1]) + bytes(9) + struct.pack(
+        "<HHIIIIIHHHHHH", 2, 40, 1, 0, 0, shoff, 0, 52, 0, 0, 40, len(secs), len(secs) - 1)
+    return bytes(data)
+
+
+def _fn(base: int, callee: int, literal: int, line: int, key: int) -> bytes:
+    """push; ldr r0,[pc,#8] (literal at +20); mov r1,#line; cmp r2,#key; bl callee; pop; literal."""
+    bl = 0xEB000000 | (((callee - (base + 16 + 8)) >> 2) & 0xFFFFFF)
+    return struct.pack("<7I", 0xE92D4800, 0xE59F000C, 0xE3A01000 | line, 0xE3520000 | key, bl, 0xE8BD8800,
+                       literal)
+
+
+def test_code_fingerprint() -> None:
+    fp = lambda code, addr: dbg.code_fingerprint(_arm_elf(code, addr))["parse_tlv_hbs_cmd"].split(":")  # noqa: E731
+    a = fp(_fn(0x1000, 0x8000, 0x5FA3C, 0x62, 0x72), 0x1000)
+    assert a[0] == "28"
+    # same code at another address, calling a moved function, with another literal address: identical
+    assert fp(_fn(0x2400, 0x9100, 0x62C1C, 0x62, 0x72), 0x2400) == a
+    # only a log line number (MOV immediate) changed: first hash differs, line-insensitive hash doesn't
+    b = fp(_fn(0x1000, 0x8000, 0x5FA3C, 0x58, 0x72), 0x1000)
+    assert b[1] != a[1] and b[2] == a[2]
+    # a compared key changed: both differ
+    c = fp(_fn(0x1000, 0x8000, 0x5FA3C, 0x62, 0x71), 0x1000)
+    assert c[1] != a[1] and c[2] != a[2]
+    assert dbg.code_fingerprint(_elf()) == {}                  # FUNC outside any mapped section: skipped
+    assert dbg.code_fingerprint(_elf(symbols=False)) is None

@@ -15,7 +15,7 @@
  * Entity lookup, per key: entities override > device_id > prefix > the only
  * aciq_thermostat device > prefix "family_room".
  */
-const VERSION = "1.3.1b1";
+const VERSION = "1.3.1b2";
 const DOMAIN = "aciq_thermostat";
 
 // key -> [entity domain, translation_key in the integration, entity-id suffix for the prefix lookup]

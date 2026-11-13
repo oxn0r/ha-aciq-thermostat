@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1b2 — 2026-11-13 (test build)
+### Added
+- Debug report: a fingerprint of each function in the thermostat's `dev_app` (size and two hashes, with
+  addresses masked), so a build's command parser can be compared with the verified one without an app capture
+  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)). Only names, sizes and hashes; no code.
+### Fixed
+- **Dehumidification** switch is greyed out when control is off (read-only firmware builds), instead of a
+  toggle that gets stuck when pressed.
+
 ## 1.3.1b1 — 2026-11-13 (test build)
 ### Added
 - Read-only support for build `tina.tangly.20251105.024132` (e.g. AC Pro-branded TL04-1,

@@ -101,6 +101,8 @@ class DehumidificationSwitch(AciqEntity, SwitchEntity):
 
     @property
     def available(self) -> bool:
+        if self.data.get("control_enabled") is False:      # read-only firmware build: shown, not pressable
+            return False
         return super().available and (self.data.get("mode") == DEV_COOL or self.is_on is True)
 
     @property

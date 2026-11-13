@@ -99,6 +99,14 @@ async def test_unavailable_while_it_cannot_turn_on(hass, aioclient_mock, mock_de
     assert hass.states.get(ENTITY).state == "off"
 
 
+async def test_unavailable_on_read_only_firmware(hass, aioclient_mock, mock_deployer, state) -> None:
+    """Control off (e.g. a read-only build, #12): greyed out rather than a toggle that gets stuck."""
+    s = _humi(state, 0)
+    s.update(control_enabled=False, firmware="tina.tangly.20251105.024132")
+    await _setup(hass, aioclient_mock, HumiDaemon(s))
+    assert hass.states.get(ENTITY).state == "unavailable"
+
+
 async def test_no_switch_on_older_daemon(hass, aioclient_mock, mock_deployer, state) -> None:
     await _setup(hass, aioclient_mock, FakeDaemon(state))          # no humi fields at all
     assert hass.states.get(ENTITY) is None

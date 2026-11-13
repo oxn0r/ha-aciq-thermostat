@@ -553,12 +553,14 @@ class Deployer:
                 try:
                     elf = await loop.run_in_executor(None, dbg.parse_elf, data)
                     layout = await loop.run_in_executor(None, dbg.struct_layout, data)
+                    code = await loop.run_in_executor(None, dbg.code_fingerprint, data)
                 except (dbg.ElfError, struct.error, IndexError, KeyError, ValueError) as err:
                     report["dev_app"] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                                          "error": f"parse failed: {err}"}
                     return report
                 report["dev_app"] = {"size": len(data), "sha256": hashlib.sha256(data).hexdigest(), **elf}
                 report["state_layout"] = layout
+                report["code_fingerprint"] = code
                 sym = elf["symbols"].get(dbg.STATE_SYMBOL)
                 if not (sym and layout and elf["type"] == "EXEC"):
                     report["state_dump"] = {"skipped": "no fixed address or layout for " + dbg.STATE_SYMBOL}

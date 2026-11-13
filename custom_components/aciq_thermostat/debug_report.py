@@ -7,6 +7,7 @@ Deployer.debug_report(). Nothing here sends anything to the thermostat.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import struct
 from typing import Any
@@ -128,6 +129,78 @@ def parse_elf(data: bytes) -> dict[str, Any]:
             if name == STATE_SYMBOL or SYMBOL_HINT.search(name):
                 info["symbols"][name] = {"addr": f"0x{value:x}", "size": sz}
     return info
+
+
+# ------------------------------------------------------------------ code fingerprint
+
+def _section_table(data: bytes) -> list[tuple[int, int, int, int]]:
+    """(type, addr, offset, size) of each section (ELF32)."""
+    _, _, _, shoff, shentsize, shnum, _, cls = _elf_header(data)
+    if cls != 1:
+        return []
+    out = []
+    for i in range(shnum):
+        _n, typ, _f, addr, off, size = struct.unpack_from("<IIIIII", data, shoff + i * shentsize)
+        out.append((typ, addr, off, size))
+    return out
+
+
+def _arm_masked(words: list[int], start: int, end: int, line_insensitive: bool) -> bytes:
+    """ARM (A32) code with what moves between builds masked: branch targets outside the function
+    and pc-relative literal-pool words (addresses). line_insensitive also masks MOV/MVN/MOVW/MOVT
+    immediates (log line numbers, which shift with unrelated edits); CMP/TST values are kept."""
+    w = list(words)
+    for i, x in enumerate(words):
+        pc = start + 4 * i + 8
+        if (x & 0x0F7F0000) == 0x051F0000:                       # LDR Rd, [PC, #+-imm12]
+            t = pc + (x & 0xFFF if x & 0x00800000 else -(x & 0xFFF))
+        elif (x & 0x0F3F0E00) == 0x0D1F0A00:                     # VLDR Dd/Sd, [PC, #+-imm8*4]
+            t = pc + ((x & 0xFF) * 4 if x & 0x00800000 else -(x & 0xFF) * 4)
+        else:
+            t = -1
+        if start <= t < end and (t - start) % 4 == 0:
+            w[(t - start) // 4] = 0xFFFFFFFF
+    for i, x in enumerate(w):
+        if x == 0xFFFFFFFF:
+            continue
+        if (x & 0x0E000000) == 0x0A000000:                       # B / BL / BLX imm
+            off = x & 0xFFFFFF
+            t = start + 4 * i + 8 + ((off - (1 << 24) if off & 0x800000 else off) << 2)
+            if not start <= t < end:
+                w[i] = x & 0xFF000000
+        elif line_insensitive and ((x & 0x0FE00000) in (0x03A00000, 0x03E00000)
+                                   or (x & 0x0FF00000) in (0x03000000, 0x03400000)):
+            w[i] = x & 0xFFF0F000                                 # keep op and Rd, drop the value
+    return struct.pack(f"<{len(w)}I", *w)
+
+
+def code_fingerprint(data: bytes) -> dict[str, str] | None:
+    """Per-function fingerprint of an ARM ELF32 executable: "size:hash:hash_ignoring_moves".
+    Comparing two builds shows which functions (e.g. the app-command parser) are unchanged
+    code, even though they sit at other addresses. Only names, sizes and hashes leave the
+    thermostat; no code."""
+    secs, _e_type, e_machine, cls = _sections(data)
+    if cls != 1 or e_machine != 40 or ".symtab" not in secs or ".strtab" not in secs:
+        return None
+    table = [t for t in _section_table(data) if t[0] != 8 and t[1]]          # not NOBITS, mapped
+    off, size, _ = secs[".symtab"]
+    str_off = secs[".strtab"][0]
+    out: dict[str, str] = {}
+    for i in range(size // 16):
+        st_name, value, sz, st_info = struct.unpack_from("<IIIB", data, off + i * 16)
+        if st_info & 0xF != 2 or not sz or value & 1 or sz % 4:              # ARM-mode STT_FUNC
+            continue
+        sec = next((t for t in table if t[1] <= value and value + sz <= t[1] + t[3]), None)
+        if sec is None:
+            continue
+        end = data.find(b"\0", str_off + st_name)
+        name = data[str_off + st_name:end].decode(errors="replace")
+        fo = sec[2] + value - sec[1]
+        words = list(struct.unpack_from(f"<{sz // 4}I", data, fo))
+        h1 = hashlib.sha256(_arm_masked(words, value, value + sz, False)).hexdigest()[:12]
+        h2 = hashlib.sha256(_arm_masked(words, value, value + sz, True)).hexdigest()[:12]
+        out[name] = f"{sz}:{h1}:{h2}"
+    return dict(sorted(out.items()))
 
 
 # ------------------------------------------------------------------ DWARF (2-4, 32-bit)
