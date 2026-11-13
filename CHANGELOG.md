@@ -1,36 +1,21 @@
 # Changelog
 
-## 1.3.1b4 — 2026-11-13 (test build)
+## 1.3.1 — 2026-11-13
 ### Added
-- **Control** on build `tina.tangly.20251105.024132`
-  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)): mode, setpoint, Auto range, fan speed and
-  Dehumidification. Its `dev_app` command path was compared with the verified build's using the debug report's
-  code fingerprints: every difference is two 4-byte-smaller structs or log line numbers; no command key or
-  check changed. Daemon: that build now enables control; the integration accepts its `dev_app` as supported.
-
-## 1.3.1b3 — 2026-11-13 (test build)
-### Added
-- Debug report: per-block hashes (4 instructions each, addresses masked) of ten `dev_app` functions on the
-  app-command path, so a difference from the verified build can be pinned to a few instructions
-  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)). Only hashes; no code.
-
-## 1.3.1b2 — 2026-11-13 (test build)
-### Added
-- Debug report: a fingerprint of each function in the thermostat's `dev_app` (size and two hashes, with
-  addresses masked), so a build's command parser can be compared with the verified one without an app capture
-  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)). Only names, sizes and hashes; no code.
-### Fixed
-- **Dehumidification** switch is greyed out when control is off (read-only firmware builds), instead of a
-  toggle that gets stuck when pressed.
-
-## 1.3.1b1 — 2026-11-13 (test build)
-### Added
-- Read-only support for build `tina.tangly.20251105.024132` (e.g. AC Pro-branded TL04-1,
-  [#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)): setup passes pre-flight with that build's `dev_app`;
-  mode, setpoint, temperature, humidity and equipment data are shown. Control stays off (the repair notice says
-  so) until this build's commands are compared with the verified one.
+- **Build `tina.tangly.20251105.024132` supported** (e.g. AC Pro-branded TL04-1,
+  [#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)): control (mode, setpoint, Auto range, fan speed,
+  Dehumidification) and equipment data. Tested by the reporter. With no app capture on that build, its `dev_app`
+  command path was compared with the verified build's code instead: every difference is two 4-byte-smaller
+  structs or log line numbers; no command key or check changed.
 - Daemon: that build's `g_self_state` address (0x5f340) and layout (308 bytes; members from byte 240 on sit
-  4 bytes earlier), behind the same layout check.
+  4 bytes earlier), behind the same layout check; control enabled on it.
+- Debug report: a fingerprint of the thermostat's `dev_app` (per function: size and two hashes with addresses
+  masked; per 4-instruction block for ten app-command functions), to compare a new build's command handling with
+  the verified one. Only names, sizes and hashes; no code.
+- A read-only firmware tier (setup passes, control off) for builds whose state can be read but whose commands
+  haven't been compared yet. Empty in this release.
+### Fixed
+- **Dehumidification** switch is greyed out while control is off, instead of a toggle that gets stuck when pressed.
 
 ## 1.3.0 — 2026-11-12
 ### Added

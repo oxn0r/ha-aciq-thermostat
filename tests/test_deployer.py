@@ -48,7 +48,7 @@ async def test_preflight_control_firmware(thermo: FakeThermostat) -> None:
 
 
 async def test_preflight_1105_control(thermo: FakeThermostat) -> None:
-    thermo.firmware = "tina.tangly.20251105.024132"                  # issue #12: control since 1.3.1b4
+    thermo.firmware = "tina.tangly.20251105.024132"                  # issue #12: control since 1.3.1
     thermo.dev_app_sha = CONTROL_FIRMWARE[thermo.firmware]
     res = await Deployer("h", 5555).preflight()
     assert res.passed and ": supported" in res.summary() and "read-only" not in res.summary()

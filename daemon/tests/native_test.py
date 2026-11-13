@@ -568,7 +568,7 @@ def _t_control_1105(d: Daemon) -> None:
 
 
 V24_TESTS.append((_t_control_1105, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
-                  "tina.tangly.20251105.024132"))                                       # control since 1.3.1b4
+                  "tina.tangly.20251105.024132"))                                       # control since 1.3.1
 
 
 def main() -> int:
