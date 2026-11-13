@@ -174,18 +174,15 @@ def _arm_masked(words: list[int], start: int, end: int, line_insensitive: bool) 
     return struct.pack(f"<{len(w)}I", *w)
 
 
-def code_fingerprint(data: bytes) -> dict[str, str] | None:
-    """Per-function fingerprint of an ARM ELF32 executable: "size:hash:hash_ignoring_moves".
-    Comparing two builds shows which functions (e.g. the app-command parser) are unchanged
-    code, even though they sit at other addresses. Only names, sizes and hashes leave the
-    thermostat; no code."""
+def _arm_functions(data: bytes) -> list[tuple[str, int, list[int]]] | None:
+    """(name, address, words) of each ARM-mode STT_FUNC in an ARM ELF32 executable, or None."""
     secs, _e_type, e_machine, cls = _sections(data)
     if cls != 1 or e_machine != 40 or ".symtab" not in secs or ".strtab" not in secs:
         return None
     table = [t for t in _section_table(data) if t[0] != 8 and t[1]]          # not NOBITS, mapped
     off, size, _ = secs[".symtab"]
     str_off = secs[".strtab"][0]
-    out: dict[str, str] = {}
+    out = []
     for i in range(size // 16):
         st_name, value, sz, st_info = struct.unpack_from("<IIIB", data, off + i * 16)
         if st_info & 0xF != 2 or not sz or value & 1 or sz % 4:              # ARM-mode STT_FUNC
@@ -196,10 +193,52 @@ def code_fingerprint(data: bytes) -> dict[str, str] | None:
         end = data.find(b"\0", str_off + st_name)
         name = data[str_off + st_name:end].decode(errors="replace")
         fo = sec[2] + value - sec[1]
-        words = list(struct.unpack_from(f"<{sz // 4}I", data, fo))
-        h1 = hashlib.sha256(_arm_masked(words, value, value + sz, False)).hexdigest()[:12]
-        h2 = hashlib.sha256(_arm_masked(words, value, value + sz, True)).hexdigest()[:12]
-        out[name] = f"{sz}:{h1}:{h2}"
+        out.append((name, value, list(struct.unpack_from(f"<{sz // 4}I", data, fo))))
+    return out
+
+
+def code_fingerprint(data: bytes) -> dict[str, str] | None:
+    """Per-function fingerprint of an ARM ELF32 executable: "size:hash:hash_ignoring_moves".
+    Comparing two builds shows which functions (e.g. the app-command parser) are unchanged
+    code, even though they sit at other addresses. Only names, sizes and hashes leave the
+    thermostat; no code."""
+    funcs = _arm_functions(data)
+    if funcs is None:
+        return None
+    out: dict[str, str] = {}
+    for name, value, words in funcs:
+        end = value + 4 * len(words)
+        h1 = hashlib.sha256(_arm_masked(words, value, end, False)).hexdigest()[:12]
+        h2 = hashlib.sha256(_arm_masked(words, value, end, True)).hexdigest()[:12]
+        out[name] = f"{4 * len(words)}:{h1}:{h2}"
+    return dict(sorted(out.items()))
+
+
+# dev_app functions on the app-command path whose code differs between builds in ways a moved
+# struct doesn't explain (#12): their per-block hashes show which instructions differ.
+BLOCK_FUNCTIONS = (
+    "parse_tlv_hbs_cmd", "setTempControlMode", "msmart_cmd_ctrl", "rac_dev_engineer_control",
+    "temp_range_check", "zone_low_temp_range_check", "zone_high_temp_range_check",
+    "rac_dev_notify_ui_state_update", "rac_dev_send_dev_state", "process_cmd_common",
+)
+BLOCK_WORDS = 4
+
+
+def code_blocks(data: bytes, names: tuple[str, ...] = BLOCK_FUNCTIONS) -> dict[str, str] | None:
+    """For a few named functions: a short hash of each run of BLOCK_WORDS instructions (addresses
+    masked as in code_fingerprint), comma-separated. Lining these up with the verified build
+    pins a difference down to a few instructions. Only hashes leave the thermostat; no code."""
+    funcs = _arm_functions(data)
+    if funcs is None:
+        return None
+    out: dict[str, str] = {}
+    for name, value, words in funcs:
+        if name not in names:
+            continue
+        masked = _arm_masked(words, value, value + 4 * len(words), False)
+        step = 4 * BLOCK_WORDS
+        out[name] = ",".join(hashlib.sha256(masked[i:i + step]).hexdigest()[:8]
+                             for i in range(0, len(masked), step))
     return dict(sorted(out.items()))
 
 

@@ -222,3 +222,17 @@ def test_code_fingerprint() -> None:
     assert c[1] != a[1] and c[2] != a[2]
     assert dbg.code_fingerprint(_elf()) == {}                  # FUNC outside any mapped section: skipped
     assert dbg.code_fingerprint(_elf(symbols=False)) is None
+
+
+def test_code_blocks() -> None:
+    blocks = lambda code, addr: dbg.code_blocks(_arm_elf(code, addr))["parse_tlv_hbs_cmd"].split(",")  # noqa: E731
+    a = blocks(_fn(0x1000, 0x8000, 0x5FA3C, 0x62, 0x72), 0x1000)
+    assert len(a) == 2 and all(len(h) == 8 for h in a)     # 7 words: one full block of 4, one of 3
+    # moved, with another callee and literal address: identical blocks
+    assert blocks(_fn(0x2400, 0x9100, 0x62C1C, 0x62, 0x72), 0x2400) == a
+    # a compared key changed (word 3): only the first block differs
+    b = blocks(_fn(0x1000, 0x8000, 0x5FA3C, 0x62, 0x71), 0x1000)
+    assert b[0] != a[0] and b[1] == a[1]
+    # functions not on the list are left out
+    assert dbg.code_blocks(_arm_elf(_fn(0x1000, 0x8000, 0, 0, 0), 0x1000, "other")) == {}
+    assert dbg.code_blocks(_elf(symbols=False)) is None

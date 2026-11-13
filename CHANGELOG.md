@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1b3 — 2026-11-13 (test build)
+### Added
+- Debug report: per-block hashes (4 instructions each, addresses masked) of ten `dev_app` functions on the
+  app-command path, so a difference from the verified build can be pinned to a few instructions
+  ([#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)). Only hashes; no code.
+
 ## 1.3.1b2 — 2026-11-13 (test build)
 ### Added
 - Debug report: a fingerprint of each function in the thermostat's `dev_app` (size and two hashes, with
