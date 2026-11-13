@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1b1 — 2026-11-13 (test build)
+### Added
+- Read-only support for build `tina.tangly.20251105.024132` (e.g. AC Pro-branded TL04-1,
+  [#12](https://github.com/oxn0r/ha-aciq-thermostat/issues/12)): setup passes pre-flight with that build's `dev_app`;
+  mode, setpoint, temperature, humidity and equipment data are shown. Control stays off (the repair notice says
+  so) until this build's commands are compared with the verified one.
+- Daemon: that build's `g_self_state` address (0x5f340) and layout (308 bytes; members from byte 240 on sit
+  4 bytes earlier), behind the same layout check.
+
 ## 1.3.0 — 2026-11-12
 ### Added
 - **Dehumidification** switch: turns the screen's *Dehumidification* setting on and off from Home Assistant

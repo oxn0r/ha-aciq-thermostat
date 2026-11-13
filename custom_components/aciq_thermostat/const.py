@@ -53,6 +53,11 @@ VERIFIED_DEV_APP_SHA256 = "63ff55d09f90b0ef896ed5cedccffac50e6a1a4b47efd220e2cb3
 CONTROL_FIRMWARE = {
     "tina.tangly.20260821.063106": "b5a264939ec23c97e9e386cc07b89aca0fd2e91ce49dd91083631a8854f550c4",  # #8
 }
+# Builds whose state can be read (same status lines; the daemon has the g_self_state address and
+# layout) but whose command parser hasn't been compared yet: set up read-only, control stays off.
+READ_ONLY_FIRMWARE = {
+    "tina.tangly.20251105.024132": "18184bc6ba270902881b10b21dfde778e0727a2ef87754c7317a3d729cfdb3fa",  # #12
+}
 
 # Diagnostics: recent dev_app/meiju state and command lines from the thermostat log (no
 # msmart lines, which carry network details)

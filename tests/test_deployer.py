@@ -8,7 +8,8 @@ import pytest
 
 from custom_components.aciq_thermostat.deployer import Deployer, DeployError, compact_log
 
-from custom_components.aciq_thermostat.const import CONTROL_FIRMWARE, LOG_READ_LINES, VERIFIED_DEV_APP_SHA256
+from custom_components.aciq_thermostat.const import (CONTROL_FIRMWARE, LOG_READ_LINES, READ_ONLY_FIRMWARE,
+                                                     VERIFIED_DEV_APP_SHA256)
 
 from .fake_adb import BUNDLED_SHA, FakeThermostat
 
@@ -42,6 +43,15 @@ async def test_preflight_control_firmware(thermo: FakeThermostat) -> None:
     thermo.dev_app_sha = CONTROL_FIRMWARE[thermo.firmware]
     res = await Deployer("h", 5555).preflight()
     assert res.passed and ": supported" in res.summary()
+    thermo.dev_app_sha = VERIFIED_DEV_APP_SHA256                       # a different dev_app on that build
+    assert not (await Deployer("h", 5555).preflight()).passed
+
+
+async def test_preflight_read_only_firmware(thermo: FakeThermostat) -> None:
+    thermo.firmware = "tina.tangly.20251105.024132"                  # issue #12
+    thermo.dev_app_sha = READ_ONLY_FIRMWARE[thermo.firmware]
+    res = await Deployer("h", 5555).preflight()
+    assert res.passed and ": supported read-only" in res.summary()
     thermo.dev_app_sha = VERIFIED_DEV_APP_SHA256                       # a different dev_app on that build
     assert not (await Deployer("h", 5555).preflight()).passed
 

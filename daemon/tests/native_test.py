@@ -531,6 +531,37 @@ V24_TESTS.append((_t_dehumidification_unsupported, lambda: v24(), "tina.tangly.2
 V24_TESTS.append((_t_unknown_firmware, lambda: AHU3_0821.format(ts=ts()), "tina.tangly.20270101.000000"))
 
 
+# Firmware tina.tangly.20251105.024132 (issue #12): g_self_state at 0x5f340, 308 bytes, the same
+# as the verified layout up to byte 239 and 4 bytes earlier from there on.
+STATE_1105_FROM_0821 = STATE_0821[:240] + STATE_0821[244:]
+# issue #12's own debug report (serial zeroed): system off, Cool 64 F, all equipment idle
+STATE_1105 = bytes.fromhex(
+    "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000020600000200000000"
+    "0000000000010118010000000001000001010000000000000000000000000000000000000100000000000200020040013c015601"
+    "500000000000000000000001000100010001000000ff000000000000014054535550004400000000000000000000000000000000"
+    "00000000000000000000e00101000000200400000000000000000000000001010001000000000100740944000028340000000000"
+    "00000000010100000101010001ff000000007a080001010100000100ac0000000000000000000000000000000000000000000000"
+    "00000000000000ffffffffffffffffffffffffffffffffff200401001615141416000000000000000000000000000000")
+
+
+def _t_equipment_1105(d: Daemon) -> None:
+    eq = d.get("/api/state")["equipment"]
+    assert eq["available"], eq
+    assert (eq["outdoor_temp"], eq["indoor_unit_t1"], eq["indoor_coil_temp"], eq["outdoor_coil_temp"]) == \
+        (68.0, 71.6, 70.7, 68.0), eq
+    assert eq["compressor_hz"] == 0 and not eq["blower_on"] and not eq["furnace_on"], eq
+
+
+V24_TESTS.append((_t_equipment_0821, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
+                  "tina.tangly.20251105.024132", (0x5f340, STATE_1105_FROM_0821)))   # tail shifted back
+V24_TESTS.append((_t_equipment_1105, lambda: AHU3.format(ts=ts(), power=0, mode=2, auto=2, sp=64),
+                  "tina.tangly.20251105.024132", (0x5f340, STATE_1105)))
+V24_TESTS.append((_t_equipment_canary, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
+                  "tina.tangly.20251105.024132", (0x5fa3c, STATE_1105)))               # wrong address: no data
+V24_TESTS.append((_t_unknown_firmware, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
+                  "tina.tangly.20251105.024132"))                                       # read-only: control off
+
+
 def main() -> int:
     tests: list = [v for k, v in globals().items() if k.startswith("test_")]
     tests += V24_TESTS                                      # (test, initial log) pairs

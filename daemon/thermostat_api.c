@@ -168,6 +168,9 @@ static struct thermostat_state cached_state = {.dev_temp_unit = 1, .zone_control
 /* Same command parser and keys as VERIFIED_FIRMWARE, from the app's commands on that build
    (issue #8, 2026-10-28). The integration checks dev_app's hash. */
 #define CONTROL_FIRMWARE "tina.tangly.20260821.063106"
+/* Older build (issue #12, 2026-11-13): same AHU3 lines; dev_app's command parser not compared
+   yet, so control stays off. Equipment data from its own g_self_state address and layout. */
+#define READ_ONLY_FIRMWARE "tina.tangly.20251105.024132"
 static char firmware_id[64] = "unknown";
 static int control_enabled = 0;
 #define MAX_ALLOWED 8
@@ -528,12 +531,16 @@ static void read_firmware_id(void) {
  * fixed address in these non-PIE builds. Offsets from dev_app DWARF; meanings verified
  * 2026-10-19 with supervised furnace and heat-pump runs. CONTROL_FIRMWARE's dev_state_t
  * (572 bytes) keeps the first 312 bytes unchanged and only appends members (DWARF from
- * issue #8's debug report, 2026-10-29, taken while heating). Only read on these two
- * builds, and only if the layout canary matches.
+ * issue #8's debug report, 2026-10-29, taken while heating). READ_ONLY_FIRMWARE's (308 bytes,
+ * DWARF from issue #12's debug report) is the same up to byte 239, then lacks state_0xc6_ex's
+ * two outdoor_mute members (+ padding): every member from state_0xD8 on sits 4 bytes earlier.
+ * Only read on these builds, and only if the layout canary matches.
  */
 #define G_SELF_STATE_ADDR 0x5fa3c
 #define G_SELF_STATE_ADDR_0821 0x62c1c
+#define G_SELF_STATE_ADDR_1105 0x5f340
 #define G_SELF_STATE_SIZE 312
+#define G_SELF_STATE_TAIL 240          /* first member that moves on READ_ONLY_FIRMWARE */
 struct equipment {
     int ok;
     int t4, t1, t2a, t3;           /* raw: degC = (raw - 40) / 2; 0/255 = invalid */
@@ -595,22 +602,28 @@ static int dev_mem_open(void) {
 static void read_equipment(struct equipment *eq) {
     memset(eq, 0, sizeof(*eq));
     off_t addr;
+    int shift = 0;                       /* added to offsets >= G_SELF_STATE_TAIL */
     if (strcmp(firmware_id, VERIFIED_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR;
     else if (strcmp(firmware_id, CONTROL_FIRMWARE) == 0) addr = G_SELF_STATE_ADDR_0821;
+    else if (strcmp(firmware_id, READ_ONLY_FIRMWARE) == 0) { addr = G_SELF_STATE_ADDR_1105; shift = -4; }
     else return;
-    unsigned char b[G_SELF_STATE_SIZE];
+    unsigned char raw[G_SELF_STATE_SIZE] = {0}, b[G_SELF_STATE_SIZE] = {0};
+    const ssize_t want = G_SELF_STATE_SIZE + shift;
     ssize_t n = -1;
-    for (int attempt = 0; attempt < 2 && n != (ssize_t)sizeof(b); attempt++) {
+    for (int attempt = 0; attempt < 2 && n != want; attempt++) {
         int fd = dev_mem_open();
         if (fd < 0) return;
-        n = pread(fd, b, sizeof(b), addr);
-        if (n != (ssize_t)sizeof(b)) {          /* dev_app restarted: reopen once */
+        n = pread(fd, raw, (size_t)want, addr);
+        if (n != want) {                         /* dev_app restarted: reopen once */
             close(dev_mem_fd);
             dev_mem_fd = -1;
             dev_mem_next_scan = 0;
         }
     }
-    if (n != (ssize_t)sizeof(b)) return;
+    if (n != want) return;
+    /* normalise to the verified layout: the head as is, the tail moved back into place */
+    memcpy(b, raw, G_SELF_STATE_TAIL);
+    memcpy(b + G_SELF_STATE_TAIL - shift, raw + G_SELF_STATE_TAIL, (size_t)(want - G_SELF_STATE_TAIL));
     /* Layout canary: state_setting.TsMinSet / TsMaxSet = device limits 60 / 86 F */
     if (b[100] != 60 || b[102] != 86) return;
     eq->ok = 1;

@@ -27,6 +27,7 @@ from adb_shell.exceptions import AdbConnectionError, AdbTimeoutError, TcpTimeout
 from . import debug_report as dbg
 from .const import (
     CONTROL_FIRMWARE,
+    READ_ONLY_FIRMWARE,
     DAEMON_DEVICE_PATH,
     DAEMON_FILENAME,
     LOG_PATTERN,
@@ -207,12 +208,15 @@ class Deployer:
                 fw = await self._sh(dev, "sed -n \"s/^DISTRIB_ID='\\(.*\\)'/\\1/p\" /etc/openwrt_release")
                 res.firmware = fw or None
                 other = fw in CONTROL_FIRMWARE
-                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or other,
+                read_only = fw in READ_ONLY_FIRMWARE
+                res.checks.append(Check("firmware", fw == VERIFIED_FIRMWARE or other or read_only,
                                         f"{fw or 'unknown'} (verified: {VERIFIED_FIRMWARE})"
-                                        + (": supported" if other else "")))
+                                        + (": supported" if other else "")
+                                        + (": supported read-only" if read_only else "")))
 
                 sha = (await self._sh(dev, "sha256sum /usr/bin/dev_app 2>/dev/null")).split(" ")[0]
-                want = CONTROL_FIRMWARE[fw] if other else VERIFIED_DEV_APP_SHA256
+                want = (CONTROL_FIRMWARE[fw] if other else READ_ONLY_FIRMWARE[fw] if read_only
+                        else VERIFIED_DEV_APP_SHA256)
                 res.checks.append(Check("dev_app_build", sha == want, f"sha256 {sha[:16] or 'missing'}…"))
 
                 pid = await self._sh(dev, "pidof dev_app")
