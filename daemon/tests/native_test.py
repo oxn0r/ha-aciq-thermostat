@@ -41,7 +41,8 @@ class Daemon:
                             else initial_log)
         self.bin = self.dir / "tapi"
         defs = {"LOG_FILE": self.log, "LOG_FILE_OLD": self.old, "UPTIME_FILE": self.dir / "uptime",
-                "OS_RELEASE_FILE": self.dir / "release", "DEV_MSG_PATH": self.dir / "nomsg"}
+                "OS_RELEASE_FILE": self.dir / "release", "DEV_MSG_PATH": self.dir / "nomsg",
+                "FRAME_LOG_FILE": self.dir / "frames"}
         if mem:                                     # sparse file standing in for dev_app's memory
             addr, data = mem
             with open(self.dir / "mem", "wb") as f:
@@ -80,6 +81,11 @@ class Daemon:
     def append(self, text: str) -> None:
         with open(self.log, "a") as f:
             f.write(text)
+
+    def frames(self) -> list[str]:
+        """Frames the daemon tried to send (hex), recorded by the test-only FRAME_LOG_FILE hook."""
+        f = self.dir / "frames"
+        return f.read_text().split() if f.exists() else []
 
     def stop(self) -> None:
         self.proc.terminate()
@@ -569,6 +575,54 @@ def _t_control_1105(d: Daemon) -> None:
 
 V24_TESTS.append((_t_control_1105, lambda: AHU3.format(ts=ts(), power=1, mode=4, auto=4, sp=72),
                   "tina.tangly.20251105.024132"))                                       # control since 1.3.1
+
+
+# Issue #13: Heat follows the thermostat's aux_heat_open setting (key 0x1f, value byte 41)
+HEAT_FRAME = "aa2e4400000000000202d0050200000001044100000001026700000001020100000001031f000000010b00005f5a17"
+
+
+def _aux_log(aux: int | None):  # noqa: ANN202
+    def log() -> str:
+        text = AHU3.format(ts=ts(), power=1, mode=4, auto=1, sp=72)
+        if aux is not None:
+            text += UI.format(ts=ts(), db=4, zm=0).replace("aux_heat_open=0", f"aux_heat_open={aux}")
+        return text
+    return log
+
+
+def _t_no_aux_heat(d: Daemon) -> None:
+    s = d.get("/api/state")
+    assert s["comm_mode"] == "communicating" and s["ui"]["aux_heat_open"] == 0, s
+    d.post("/api/control", {"mode": "heat"})                               # no IPC here: frame is recorded
+    f = d.frames()
+    assert len(f) == 1 and f[0] == HEAT_FRAME[:82] + "0a0000000000", f      # aux off, trailer zeroed
+    code, r = d.post("/api/control", {"mode": "emergency_heat"})
+    assert code == 400 and "no aux heat installed" in r["error"], r
+    assert len(d.frames()) == 1
+    for mode in ("cool", "auto", "fan_only"):                               # other frames as captured
+        d.post("/api/control", {"mode": mode})
+    assert all(x[82:84] == "0a" for x in d.frames()[1:]), d.frames()
+
+
+def _t_aux_heat_installed(d: Daemon) -> None:
+    assert d.get("/api/state")["ui"]["aux_heat_open"] == 1
+    d.post("/api/control", {"mode": "heat"})
+    assert d.frames() == [HEAT_FRAME], d.frames()                           # unchanged from 1.3.1
+    code, r = d.post("/api/control", {"mode": "emergency_heat"})
+    assert "aux" not in r.get("error", ""), r
+    assert len(d.frames()) == 2 and d.frames()[1][82:84] == "0a" and d.frames()[1][58:60] == "03"
+
+
+def _t_aux_heat_unknown(d: Daemon) -> None:
+    assert d.get("/api/state")["ui"]["aux_heat_open"] == -1
+    d.post("/api/control", {"mode": "heat"})
+    assert d.frames() == [HEAT_FRAME], d.frames()                           # not seen yet: as before
+    code, r = d.post("/api/control", {"mode": "emergency_heat"})
+    assert "aux" not in r.get("error", ""), r
+
+
+V24_TESTS += [(_t_no_aux_heat, _aux_log(0)), (_t_aux_heat_installed, _aux_log(1)),
+              (_t_aux_heat_unknown, _aux_log(None))]
 
 
 def main() -> int:

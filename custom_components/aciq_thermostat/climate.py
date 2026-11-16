@@ -89,7 +89,6 @@ class AciqClimate(AciqEntity, ClimateEntity):
     _attr_translation_key = "thermostat"
     _attr_precision = PRECISION_TENTHS
     _attr_fan_modes = FAN_MODES
-    _attr_preset_modes = [PRESET_NONE, PRESET_EMERGENCY_HEAT]
     _attr_target_temperature_step = TEMP_STEP
 
     def __init__(self, coordinator: AciqCoordinator) -> None:
@@ -142,9 +141,21 @@ class AciqClimate(AciqEntity, ClimateEntity):
     def _dev_mode(self) -> str:
         return str(self.data.get("mode", "unknown"))
 
+    def _no_aux_heat(self) -> bool:
+        """The thermostat's installer setting says no backup heat is installed (issue #13).
+        Unknown (not reported yet, or an older daemon) keeps Emergency heat offered."""
+        return (self.data.get("comm_mode") == "communicating" and self.data.get("ui", {}).get("aux_heat_open") == 0
+                and self._dev_mode != DEV_EMERGENCY_HEAT)
+
+    @property
+    def preset_modes(self) -> list[str] | None:
+        return None if self._no_aux_heat() else [PRESET_NONE, PRESET_EMERGENCY_HEAT]
+
     @property
     def supported_features(self) -> ClimateEntityFeature:
-        f = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF | ClimateEntityFeature.PRESET_MODE
+        f = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+        if not self._no_aux_heat():
+            f |= ClimateEntityFeature.PRESET_MODE
         if self._range_in(self._dev_mode):
             f |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         elif self._dev_mode in (DEV_AUTO, DEV_HEAT, DEV_COOL, DEV_DRY, DEV_EMERGENCY_HEAT):

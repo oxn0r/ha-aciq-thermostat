@@ -216,3 +216,23 @@ async def test_fan_mode_in_heat(hass, aioclient_mock, mock_deployer, state) -> N
                                        {"entity_id": "climate.thermostat", "fan_mode": "low"}, blocking=True)
     posts = [call[2] for call in aioclient_mock.mock_calls if call[0] == "POST"]
     assert posts == [{"fan": "low"}]
+
+
+@pytest.mark.parametrize(("comm", "aux", "offered"), [
+    ("communicating", 0, False),       # heat pump only (issue #13): no Emergency heat
+    ("communicating", 1, True),
+    ("communicating", -1, True),       # not reported yet
+    ("communicating", None, True),     # older daemon
+    ("24v", 0, True),                  # 24 V follows Aaux in the daemon
+])
+async def test_emergency_heat_follows_aux_setting(hass, aioclient_mock, mock_deployer, state,
+                                                  comm, aux, offered) -> None:
+    state["mode"] = "heat"
+    state["comm_mode"] = comm
+    if aux is not None:
+        state["ui"]["aux_heat_open"] = aux
+    await _setup(hass, aioclient_mock, state)
+    st = hass.states.get("climate.thermostat")
+    assert ("preset_modes" in st.attributes) is offered, st.attributes
+    if offered:
+        assert st.attributes["preset_modes"] == ["none", "emergency_heat"]
