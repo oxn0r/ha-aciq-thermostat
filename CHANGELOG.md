@@ -1,15 +1,13 @@
 # Changelog
 
-## 1.3.2b1 — test build
+## 1.3.2 — 2026-11-15
 ### Fixed
-- **Heat started from Home Assistant on heat-pump-only systems**
-  ([#13](https://github.com/oxn0r/ha-aciq-thermostat/issues/13)): the Heat command always allowed backup heat, so
-  on systems without any, the indoor unit stopped the compressor and ran the blower waiting for aux heat, and
-  Home Assistant showed the furnace on. Heat now follows the thermostat's own installer setting (aux heat
-  installed or not), as the screen and the app do. Systems with backup heat (furnace or heat strips) get exactly
-  the same command as before.
-- **Emergency heat** is no longer offered, and is refused by the daemon, when the thermostat says no backup heat
-  is installed.
+- **Aux heat now follows the thermostat's own setting**, for systems with or without backup heat (furnace or heat
+  strips) ([#13](https://github.com/oxn0r/ha-aciq-thermostat/issues/13)). Heat started from Home Assistant used to
+  always allow aux heat. On heat-pump-only systems the indoor unit then stopped the compressor and ran the blower
+  waiting for aux heat that isn't there, and Home Assistant showed the furnace on. Heat now uses the thermostat's
+  installer setting, as the screen and the app do. Systems with backup heat get exactly the same command as before.
+- **Emergency heat** is only offered (and accepted by the daemon) when the thermostat says backup heat is installed.
 ### Added
 - Daemon: `ui.aux_heat_open` in `/api/state` (the thermostat's aux heat setting; -1 until reported).
 

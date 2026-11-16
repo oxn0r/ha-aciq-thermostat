@@ -138,7 +138,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 ## Entities
 | Entity | Type | Notes |
 |---|---|---|
-| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only / Dry (communicating systems) · preset **Emergency heat** · fan Auto/Low/Medium/High (Heat & Cool; option to hide) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
+| *Thermostat* | climate | Off / Auto / Heat / Cool / Fan only / Dry (communicating systems) · preset **Emergency heat** (when the thermostat says backup heat is installed) · fan Auto/Low/Medium/High (Heat & Cool; option to hide) · 60–86 °F or 16–30 °C (follows the thermostat's unit) · Auto shows one setpoint or a heat/cool range, following the thermostat (see below) |
 | Temperature · Humidity | sensor | thermostat's compensated sensor |
 | **Outdoor temperature** | sensor | outdoor unit T4 |
 | Indoor coil / Outdoor coil temperature | sensor | T2A / T3 |
