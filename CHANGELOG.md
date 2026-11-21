@@ -3,9 +3,11 @@
 ## 1.4.0 — unreleased
 ### Added
 - **Defrost** sensor ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)): on while the heat pump defrosts.
-  While heating with the heat pump, a defrost runs it reversed and the indoor coil falls far below room
-  temperature (to about 5 °F in the first capture, from 90–110 °F while heating), so the sensor turns on at or
-  below 40 °F and off again above 55 °F. The thermostat shows *Defrosting* as its action, and the system card shows
+  While heating with the heat pump, a defrost runs it reversed: the indoor coil (normally 90–110 °F) turns colder
+  than the outdoor coil, which heats to 60–80 °F. The sensor turns on when the indoor coil is at or below 50 °F
+  and at least 5 °F colder than the outdoor coil, and off when it's back to 60 °F. Checked against 11 days of a
+  dual-fuel system's history: all 21 defrosts found, from 1-minute mild-weather ones to 6-minute ones, and no
+  false starts. The thermostat shows *Defrosting* as its action, and the system card shows
   *Defrosting* with the refrigerant flow reversed and the outdoor fan stopped. Attributes: the last defrost's
   start, end, length and lowest coil temperature.
 - Diagnostics: each defrost is logged with its length and the indoor unit's run bits seen during it, to map the
