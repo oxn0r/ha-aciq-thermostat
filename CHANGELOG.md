@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0 — unreleased
+## 1.4.0 — 2026-11-21
 ### Added
 - **Defrost** sensor ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)): on while the heat pump defrosts.
   While heating with the heat pump, a defrost runs it reversed: the indoor coil (normally 90–110 °F) turns colder
