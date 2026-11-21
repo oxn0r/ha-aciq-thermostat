@@ -38,6 +38,7 @@ from .const import (
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
     CONF_DRY_RETURN,
+    CONF_ADDRESS_CHANGE,
     CONF_PREVIOUS_HOST,
     CONF_SYNC_CLOCK,
     CONF_EXTRA_ALLOWED_IPS,
@@ -679,12 +680,20 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not res.serial or res.serial != self.config_entry.unique_id:
             _LOGGER.info("Previous address %s answers, but it's another device; staying on %s", prev, self.host)
             return
+        record = {"time": dt_util.utcnow().isoformat(timespec="seconds"), "source": "fallback",
+                  "ip": prev, "serial_check": "passed (same serial)", "old_host": self.host,
+                  "old_host_answered": {str(self.api_port): False}, "action": "moved back"}
         self._event("host_changed", host=prev, previous_host=self.host, reason="previous address answers")
         _LOGGER.warning("Thermostat unreachable at %s but found at its previous address %s (same serial); "
                         "switching back", self.host, prev)
         # the data change reloads the entry (update listener)
         self.hass.config_entries.async_update_entry(
-            self.config_entry, data={**self.config_entry.data, CONF_HOST: prev, CONF_PREVIOUS_HOST: self.host})
+            self.config_entry, data={**self.config_entry.data, CONF_HOST: prev, CONF_PREVIOUS_HOST: self.host,
+                                     CONF_ADDRESS_CHANGE: record})
+
+    def address_seen(self, record: dict[str, Any]) -> None:
+        """Discovery saw the thermostat at another address but kept this one (it still answers)."""
+        self._event("address_seen", **{k: v for k, v in record.items() if k != "time"})
 
     def _recovered(self) -> None:
         if self.outage is None:

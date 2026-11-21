@@ -20,7 +20,11 @@
   ([#15](https://github.com/oxn0r/ha-aciq-thermostat/issues/15)). DHCP discovery only changes the stored address
   when the current one stops answering, and keeps the old one. If the new address then stays unreachable for
   2 minutes, the integration tries the previous one and moves back when the same thermostat answers there.
-  Address changes are logged and recorded in diagnostics. Reconfigure clears the fallback.
+  Reconfigure clears the fallback.
+- **Address changes say where they came from** ([#15](https://github.com/oxn0r/ha-aciq-thermostat/issues/15)):
+  the log entry gives the DHCP hostname, MAC and IP the thermostat was seen with, the serial check result,
+  whether the old address still answered, and whether the address was kept or moved. The last change is shown
+  in diagnostics (addresses redacted).
 
 ## 1.3.2 — 2026-11-15
 ### Fixed

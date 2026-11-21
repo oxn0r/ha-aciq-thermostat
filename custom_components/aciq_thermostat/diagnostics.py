@@ -8,11 +8,11 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import AciqConfigEntry
-from .const import LOG_TAIL_LINES, VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
+from .const import CONF_ADDRESS_CHANGE, LOG_TAIL_LINES, VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
 from .deployer import DeployError, bundled_daemon_sha256
 
 # users post this download publicly on GitHub issues
-TO_REDACT = {"serial", "host", "allowed_ips"}
+TO_REDACT = {"serial", "host", "allowed_ips", "ip", "old_host", "previous_host", "mac"}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqConfigEntry) -> dict[str, Any]:
@@ -41,7 +41,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "clock": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.clock.items()},
         "versions": c.versions,
         "long_poll_supported": c.long_poll_supported,
+<<<<<<< HEAD
         "adb_unavailable": c.adb_down,
+=======
+        # #15: the last address change (DHCP discovery or fallback), addresses redacted
+        "last_address_change": entry.data.get(CONF_ADDRESS_CHANGE),
+>>>>>>> host-recovery
         "egress_filter": c.deployer.last_egress,
         "egress_verified_at": c.egress_verified_at.isoformat() if c.egress_verified_at else None,
         "thermostat_boot_time": c.boot_time.isoformat() if c.boot_time else None,

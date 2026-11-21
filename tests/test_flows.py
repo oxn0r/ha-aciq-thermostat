@@ -101,6 +101,11 @@ async def test_dhcp_known_device_new_ip(hass: HomeAssistant, mock_deployer) -> N
     assert r["reason"] == "already_configured"
     assert e.data[CONF_HOST] == "10.0.2.200" and e.data["previous_host"] == HOST
     assert {c.args for c in tcp.await_args_list} == {(HOST, 8080), (HOST, 5555)}
+    rec = e.data["last_address_change"]                       # where it came from, how it was checked
+    assert (rec["source"], rec["hostname"], rec["mac"], rec["ip"]) == ("dhcp", "midea_44_1619", "54926ae55f14",
+                                                                         "10.0.2.200")
+    assert rec["serial_check"] == "passed (same serial)" and rec["action"] == "moved"
+    assert rec["old_host"] == HOST and rec["old_host_answered"] == {"8080": False, "5555": False}
 
 
 async def test_dhcp_keeps_working_address(hass: HomeAssistant, mock_deployer) -> None:
@@ -110,6 +115,19 @@ async def test_dhcp_keeps_working_address(hass: HomeAssistant, mock_deployer) ->
         r = await _dhcp(hass)
     assert r["reason"] == "already_configured"
     assert e.data[CONF_HOST] == HOST and "previous_host" not in e.data
+
+
+async def test_dhcp_kept_address_recorded_on_running_entry(hass: HomeAssistant, mock_deployer) -> None:
+    from unittest.mock import MagicMock
+    from homeassistant.config_entries import ConfigEntryState
+    e = _entry(hass, host=HOST)
+    e.mock_state(hass, ConfigEntryState.LOADED)
+    e.runtime_data = MagicMock()
+    with patch(TCP, AsyncMock(return_value=True)):
+        await _dhcp(hass)
+    rec = e.runtime_data.address_seen.call_args.args[0]
+    assert rec["action"] == "kept old address" and rec["ip"] == "10.0.2.200"
+    assert rec["old_host_answered"] == {"8080": True, "5555": True}
 
 
 async def test_dhcp_cannot_connect(hass: HomeAssistant, mock_deployer) -> None:
