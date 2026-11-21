@@ -16,6 +16,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
@@ -23,6 +24,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ADB_PORT,
@@ -31,6 +33,7 @@ from .const import (
     CONF_DRY_RETURN,
     CONF_EXTRA_ALLOWED_IPS,
     CONF_HIDE_FAN,
+    CONF_ADDRESS_CHANGE,
     CONF_PREVIOUS_HOST,
     CONF_SYNC_CLOCK,
     DEFAULT_ADB_PORT,
@@ -179,12 +182,25 @@ class AciqConfigFlow(ConfigFlow, domain=DOMAIN):
         known = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, res.serial)
         if known is not None and (old := known.data.get(CONF_HOST)) and old != host:
             ports = (known.data.get(CONF_PORT, DEFAULT_PORT), known.data.get(CONF_ADB_PORT, DEFAULT_ADB_PORT))
-            if any([await tcp_open(old, p) for p in ports]):
-                _LOGGER.info("Thermostat %s also seen at %s; keeping %s, which still answers", res.serial, host, old)
+            answered = {str(p): await tcp_open(old, p) for p in ports}
+            kept = any(answered.values())
+            # where the address came from and how it was checked, for the log and diagnostics
+            record = {"time": dt_util.utcnow().isoformat(timespec="seconds"), "source": "dhcp",
+                      "hostname": discovery_info.hostname, "mac": discovery_info.macaddress, "ip": host,
+                      "serial_check": "passed (same serial)", "old_host": old,
+                      "old_host_answered": answered, "action": "kept old address" if kept else "moved"}
+            detail = (f"seen on DHCP as {discovery_info.hostname} / {discovery_info.macaddress} at {host}; "
+                      f"serial check passed (same serial); old address {old} answered: "
+                      + ", ".join(f"port {p} {'yes' if ok else 'no'}" for p, ok in answered.items()))
+            if kept:
+                _LOGGER.info("Thermostat also seen at %s; keeping %s, which still answers (%s)", host, old, detail)
+                if known.state is ConfigEntryState.LOADED:
+                    known.runtime_data.address_seen(record)
                 return self.async_abort(reason="already_configured")
-            _LOGGER.warning("Thermostat moved from %s to %s (seen on DHCP, same serial); %s is kept to fall "
-                            "back to if %s stops answering", old, host, old, host)
-            self._abort_if_unique_id_configured(updates={CONF_HOST: host, CONF_PREVIOUS_HOST: old})
+            _LOGGER.warning("Thermostat moved from %s to %s (%s); %s is kept to fall back to if %s stops "
+                            "answering", old, host, detail, old, host)
+            self._abort_if_unique_id_configured(
+                updates={CONF_HOST: host, CONF_PREVIOUS_HOST: old, CONF_ADDRESS_CHANGE: record})
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
         self._input = {CONF_HOST: host, CONF_NAME: DEFAULT_NAME, CONF_PORT: DEFAULT_PORT,
                        CONF_ADB_PORT: DEFAULT_ADB_PORT}

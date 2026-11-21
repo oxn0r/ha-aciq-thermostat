@@ -15,6 +15,8 @@ CONF_SYNC_CLOCK = "sync_clock"
 # Address the thermostat had before DHCP discovery moved the entry (#15): tried again if the new
 # address stops answering. Cleared by Reconfigure.
 CONF_PREVIOUS_HOST = "previous_host"
+# Details of the last address change (#15): where the address was seen and how it was checked
+CONF_ADDRESS_CHANGE = "last_address_change"
 CONF_DRY_RETURN = "dry_return_previous"
 CONF_HIDE_FAN = "hide_fan_speed"          # thermostat entity without fan speed (e.g. kept out of Apple Home)   # after Dry ends in Cool, put back the mode Dry started from
 
