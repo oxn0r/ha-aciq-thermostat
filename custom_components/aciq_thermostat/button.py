@@ -30,6 +30,15 @@ async def async_setup_entry(
     async_add_entities([RedeployButton(c), DebugReportButton(c)])
 
 
+async def _adb_error(coordinator: AciqCoordinator, err: DeployError) -> HomeAssistantError:
+    """The error for a button that needs ADB: points at the repair notice when ADB is unavailable
+    while the daemon runs (#14), else the ADB error itself."""
+    if coordinator.adb_down or await coordinator.async_check_adb(err):
+        return HomeAssistantError(translation_domain=DOMAIN, translation_key="adb_unavailable")
+    return HomeAssistantError(translation_domain=DOMAIN, translation_key="deploy_failed",
+                              translation_placeholders={"error": str(err)})
+
+
 class RedeployButton(AciqEntity, ButtonEntity):
     _attr_translation_key = "redeploy"
     _attr_entity_category = EntityCategory.CONFIG
@@ -45,10 +54,7 @@ class RedeployButton(AciqEntity, ButtonEntity):
         try:
             await self.coordinator.async_deploy(force=True)
         except DeployError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="deploy_failed",
-                translation_placeholders={"error": str(err)},
-            ) from err
+            raise await _adb_error(self.coordinator, err) from err
         await self.coordinator.async_request_refresh()
 
 
@@ -69,10 +75,7 @@ class DebugReportButton(AciqEntity, ButtonEntity):
         try:
             report = await self.coordinator.async_collect_debug_report()
         except DeployError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="deploy_failed",
-                translation_placeholders={"error": str(err)},
-            ) from err
+            raise await _adb_error(self.coordinator, err) from err
         pre = report["preflight"]
         failed = [c["key"] for c in pre["checks"] if not c["ok"]]
         status = "all pre-flight checks passed" if not failed else "pre-flight: " + ", ".join(failed) + " failed"

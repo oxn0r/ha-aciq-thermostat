@@ -89,6 +89,10 @@
     "conventional_24v": {
       "title": "24 V thermostat: waiting for its state",
       "description": "This thermostat drives its equipment over conventional 24 V wiring, and the daemon hasn't seen its 24 V state lines yet. This usually clears within a minute. If it stays, the thermostat reports: {summary}. Please press **Collect debug report**, download diagnostics and attach them to a new issue."
+    },
+    "adb_unavailable": {
+      "title": "Thermostat ADB unavailable — control still works",
+      "description": "The thermostat's ADB service (TCP {port}) stopped answering, but the integration's service on the thermostat is still running, so readings and control keep working.\n\nUntil ADB is back, the integration can't update its service, apply or check **Block cloud traffic**, sync the clock or collect a debug report.\n\n**To fix:** power-cycle the thermostat (or the HVAC system). ADB comes back after a restart, and the integration reinstalls its service automatically. This notice clears by itself once ADB answers again."
     }
   },
   "entity": {
@@ -345,6 +349,9 @@
     },
     "dehumidification_cool": {
       "message": "Dehumidification can only be turned on in Cool, like on the thermostat's screen."
+    },
+    "adb_unavailable": {
+      "message": "The thermostat's ADB service isn't answering, so this needs a power cycle of the thermostat first. Control still works; see the repair notice."
     }
   },
   "services": {

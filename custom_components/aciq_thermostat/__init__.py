@@ -77,12 +77,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: AciqConfigEntry) -> bool
         try:
             await coordinator.async_deploy()
         except DeployError as err:
-            raise ConfigEntryNotReady(f"Could not start daemon on thermostat: {err}") from err
+            # ADB down but the daemon from an earlier start still answers (#14): carry on with it
+            if not await coordinator.async_check_adb(err):
+                raise ConfigEntryNotReady(f"Could not start daemon on thermostat: {err}") from err
 
-    try:
-        coordinator.set_versions(await coordinator.deployer.read_versions())
-    except DeployError as err:
-        _LOGGER.debug("Could not read version info: %s", err)
+    if not coordinator.adb_down:
+        try:
+            coordinator.set_versions(await coordinator.deployer.read_versions())
+        except DeployError as err:
+            _LOGGER.debug("Could not read version info: %s", err)
 
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

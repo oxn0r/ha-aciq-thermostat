@@ -43,6 +43,8 @@ EGRESS_VERIFY_INTERVAL = 1800
 # Thermostat clock: checked at setup, after reboots/redeploys and this often; corrected
 # when off by at least CLOCK_MAX_OFFSET seconds (date has 1 s resolution on the device)
 CLOCK_CHECK_INTERVAL = 6 * 3600
+# While ADB is unavailable (#14): how often to check whether it's back (a TCP connect)
+ADB_RETRY_INTERVAL = 300
 CLOCK_MAX_OFFSET = 2.0
 
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
@@ -126,3 +128,4 @@ NEW_ISSUE_URL = "https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template
 BUG_ISSUE_URL = "https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml"
 ISSUE_24V_READ_ONLY = "read_only_24v"   # pre-1.1.0 test-build note, only deleted now
 ISSUE_DEPLOY = "deploy_failed"
+ISSUE_ADB = "adb_unavailable"      # ADB stopped answering while the daemon runs (#14)
