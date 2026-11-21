@@ -17,14 +17,19 @@ TO_REDACT = {"serial", "host", "allowed_ips"}
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqConfigEntry) -> dict[str, Any]:
     c = entry.runtime_data
-    try:
-        preflight = await c.async_run_preflight()
-    except DeployError as err:
-        preflight = {"error": str(err)}
-    try:
-        recent_log: list[str] | dict[str, str] = await c.deployer.recent_log(LOG_TAIL_LINES)
-    except DeployError as err:
-        recent_log = {"error": str(err)}
+    preflight: dict[str, Any]
+    recent_log: list[str] | dict[str, str]
+    if c.adb_down:                                   # #14: don't wait on ADB that isn't there
+        preflight = recent_log = {"error": "ADB unavailable"}
+    else:
+        try:
+            preflight = await c.async_run_preflight()
+        except DeployError as err:
+            preflight = {"error": str(err)}
+        try:
+            recent_log = await c.deployer.recent_log(LOG_TAIL_LINES)
+        except DeployError as err:
+            recent_log = {"error": str(err)}
     return async_redact_data({
         "host": c.host,
         "options": dict(entry.options),
@@ -36,6 +41,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "clock": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.clock.items()},
         "versions": c.versions,
         "long_poll_supported": c.long_poll_supported,
+        "adb_unavailable": c.adb_down,
         "egress_filter": c.deployer.last_egress,
         "egress_verified_at": c.egress_verified_at.isoformat() if c.egress_verified_at else None,
         "thermostat_boot_time": c.boot_time.isoformat() if c.boot_time else None,

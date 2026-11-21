@@ -42,8 +42,9 @@ async def _setup(hass: HomeAssistant, aioclient_mock: Any, state: dict, auto: bo
     return e
 
 
-async def test_setup_deploy_failure_not_ready(hass, aioclient_mock, mock_deployer, state) -> None:
-    mock_deployer[1].side_effect = DeployError("adb down")
+async def test_setup_deploy_failure_not_ready(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
+    tcp_probe.result = {8080: "open", 5555: "open"}     # ADB answers: not the #14 fallback
+    mock_deployer[1].side_effect = DeployError("pre-flight failed")
     e = await _setup(hass, aioclient_mock, state)
     assert e.state is ConfigEntryState.SETUP_RETRY
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"deploy_failed_{e.entry_id}")
@@ -126,7 +127,8 @@ async def test_control_errors(hass, aioclient_mock, mock_deployer, state) -> Non
         await c.async_control({"temperature": 70})
 
 
-async def test_buttons(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_buttons(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
+    tcp_probe.result = {8080: "open", 5555: "open"}     # ADB answers: not the #14 fallback
     await _setup(hass, aioclient_mock, state)
     pre, ens = mock_deployer
     await hass.services.async_call("button", "press", {"entity_id": "button.thermostat_redeploy_daemon"}, blocking=True)
@@ -138,7 +140,8 @@ async def test_buttons(hass, aioclient_mock, mock_deployer, state) -> None:
     assert hass.states.get("button.thermostat_run_pre_flight_checks") is None      # merged into the report
 
 
-async def test_debug_report_button(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_debug_report_button(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
+    tcp_probe.result = {8080: "open", 5555: "open"}     # ADB answers: not the #14 fallback
     e = await _setup(hass, aioclient_mock, state)
     pre, _ = mock_deployer
     with patch("custom_components.aciq_thermostat.button.persistent_notification.async_create") as note:

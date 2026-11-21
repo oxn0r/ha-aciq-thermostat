@@ -53,6 +53,8 @@ from .const import (
     DEV_HEAT,
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
+    ADB_RETRY_INTERVAL,
+    ISSUE_ADB,
     ISSUE_24V,
     ISSUE_24V_READ_ONLY,
     ISSUE_DEPLOY,
@@ -175,6 +177,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # mode (and setpoint) Dry was started from by Home Assistant: put back when Dry ends in Cool
         self.dry_return: dict[str, Any] | None = None
         self._egress_task: asyncio.Task[None] | None = None
+        # ADB stopped answering while the daemon keeps running (#14): control goes on through the
+        # daemon; ADB work (deploys, cloud block, clock, debug reports) waits until ADB is back
+        self.adb_down: bool = False
+        self._adb_next_check: float = 0.0
+        self._adb_task: asyncio.Task[None] | None = None
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or self.host)},
             name=entry.title,
@@ -232,6 +239,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._event("deploy", reason=reason, result=result, explanation=explanation,
                     thermostat_uptime_s=up, egress=dict(self.deployer.last_egress))
         ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_DEPLOY}_{self.config_entry.entry_id}")
+        self._adb_ok()
         if detail.get("action") == "already_running":
             _LOGGER.debug("Daemon on %s already running (pid %s)", self.host, detail.get("pid"))
         else:
@@ -252,7 +260,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return bool(self.config_entry.options.get(CONF_SYNC_CLOCK, True))
 
     def _maybe_check_clock(self) -> None:
-        if not self.sync_clock_enabled or not self.auto_deploy:
+        if not self.sync_clock_enabled or not self.auto_deploy or self.adb_down:
             return
         last = self.clock.get("checked_at")
         due = self._clock_check_due or last is None or (
@@ -270,7 +278,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except DeployError as err:
             _LOGGER.debug("Clock check on %s skipped: %s", self.host, err)
             self._clock_check_due = True
+            await self.async_check_adb(err)
             return
+        self._adb_ok()
         self.clock = {**res, "checked_at": dt_util.utcnow(),
                       **({"last_correction": dt_util.utcnow(), "last_correction_offset_s": res["offset_s"]}
                          if res.get("corrected") else
@@ -289,7 +299,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _maybe_verify_egress(self) -> None:
         """Schedule a background check that the egress rule is (still) applied."""
-        if not self.block_egress or not self.auto_deploy:
+        if not self.block_egress or not self.auto_deploy or self.adb_down:
             return
         due = self._egress_check_due or self.egress_verified_at is None or (
             (dt_util.utcnow() - self.egress_verified_at).total_seconds() > EGRESS_VERIFY_INTERVAL)
@@ -355,7 +365,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except DeployError as err:
             _LOGGER.warning("Could not verify the cloud-traffic block on %s: %s", self.host, err)
             self._egress_check_due = True
+            await self.async_check_adb(err)
             return
+        self._adb_ok()
         self.egress_verified_at = dt_util.utcnow()
         self._event("egress_check", result=result, egress=dict(self.deployer.last_egress))
         if result == "repaired":
@@ -489,6 +501,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = await self._handle_failure(err)
         self._recovered()
         self.failures = 0
+        self._maybe_retry_adb()
         issue_24v = f"{ISSUE_24V}_{self.config_entry.entry_id}"
         if not data.get("dev", {}).get("seen"):
             if data.get("comm_mode") == "24v":
@@ -559,6 +572,71 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             translation_domain=DOMAIN, translation_key="unreachable",
             translation_placeholders={"error": detail},
         ) from err
+
+    # ------------------------------------------------------- ADB unavailable (#14)
+
+    async def async_check_adb(self, err: BaseException) -> bool:
+        """After an ADB failure: if ADB's port doesn't answer while the daemon does, note ADB as
+        unavailable (repair notice, event) and return True. Control keeps working through the
+        daemon. False if ADB answers (a one-off failure) or the daemon is down too."""
+        adb = await self._tcp(self.adb_port)
+        if adb == "open":
+            return False
+        try:
+            await self._fetch()                      # the daemon must really answer, not just accept
+        except (aiohttp.ClientError, TimeoutError):
+            return False
+        self._adb_unavailable(f"{err}; ADB {self.adb_port} {adb}, API {self.api_port} answering")
+        return True
+
+    def _adb_unavailable(self, detail: str) -> None:
+        self._adb_next_check = time.monotonic() + ADB_RETRY_INTERVAL
+        if self.adb_down:
+            return
+        self.adb_down = True
+        self._event("adb_unavailable", detail=detail)
+        _LOGGER.warning("ADB on %s:%s is unavailable while the daemon still runs (%s). Control keeps "
+                        "working; power-cycle the thermostat to bring ADB back", self.host, self.adb_port, detail)
+        ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_DEPLOY}_{self.config_entry.entry_id}")
+        ir.async_create_issue(
+            self.hass, DOMAIN, f"{ISSUE_ADB}_{self.config_entry.entry_id}",
+            is_fixable=False, severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_ADB, translation_placeholders={"port": str(self.adb_port)},
+        )
+
+    def _adb_ok(self) -> None:
+        if not self.adb_down:
+            return
+        self.adb_down = False
+        self._event("adb_recovered")
+        _LOGGER.info("ADB on %s:%s is back", self.host, self.adb_port)
+        ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_ADB}_{self.config_entry.entry_id}")
+        self._clock_check_due = True
+        self._egress_check_due = True
+
+    def _maybe_retry_adb(self) -> None:
+        """While ADB is unavailable, check every few minutes (one TCP connect) and, once it
+        answers, run the normal deploy: it keeps or updates the daemon and the cloud block."""
+        if not self.adb_down or time.monotonic() < self._adb_next_check:
+            return
+        if self._adb_task is not None and not self._adb_task.done():
+            return
+        self._adb_next_check = time.monotonic() + ADB_RETRY_INTERVAL
+        self._adb_task = self.config_entry.async_create_background_task(
+            self.hass, self._retry_adb(), f"{DOMAIN} ADB retry {self.host}")
+
+    async def _retry_adb(self) -> None:
+        if await self._tcp(self.adb_port) != "open":
+            return
+        try:
+            if self.auto_deploy:
+                await self.async_deploy(reason="adb_recovered")
+            else:
+                self._adb_ok()
+        except DeployError as err:
+            _LOGGER.debug("ADB on %s answers again but the deploy failed: %s", self.host, err)
+            await self.async_check_adb(err)
+        self.async_update_listeners()
 
     def _recovered(self) -> None:
         if self.outage is None:
