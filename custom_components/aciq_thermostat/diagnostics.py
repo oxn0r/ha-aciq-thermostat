@@ -41,12 +41,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "clock": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.clock.items()},
         "versions": c.versions,
         "long_poll_supported": c.long_poll_supported,
-<<<<<<< HEAD
         "adb_unavailable": c.adb_down,
-=======
         # #15: the last address change (DHCP discovery or fallback), addresses redacted
         "last_address_change": entry.data.get(CONF_ADDRESS_CHANGE),
->>>>>>> host-recovery
         "egress_filter": c.deployer.last_egress,
         "egress_verified_at": c.egress_verified_at.isoformat() if c.egress_verified_at else None,
         "thermostat_boot_time": c.boot_time.isoformat() if c.boot_time else None,
