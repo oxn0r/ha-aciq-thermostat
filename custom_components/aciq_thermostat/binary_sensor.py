@@ -31,6 +31,9 @@ class AciqBinaryDescription(BinarySensorEntityDescription):
     needs_equipment: bool = False
     # communicating-only (dev_app memory / AHU3 fields) or 24 V-only (terminal outputs)
     v24: bool | None = None
+    # reads the coordinator (state worked out across updates) instead of one state snapshot
+    coordinator_fn: Callable[[AciqCoordinator], bool] | None = None
+    attrs_fn: Callable[[AciqCoordinator], dict[str, Any] | None] | None = None
 
 
 def _out(d: dict[str, Any], *terminals: str) -> bool | None:
@@ -38,6 +41,14 @@ def _out(d: dict[str, Any], *terminals: str) -> bool | None:
     if not out.get("known"):
         return None
     return bool(set(terminals) & set(out.get("active", [])))
+
+
+def _defrost_attrs(c: AciqCoordinator) -> dict[str, Any] | None:
+    last = c.last_defrost
+    if not last:
+        return None
+    return {"last_start": last["start"], "last_end": last["end"], "last_duration_s": last["duration_s"],
+            "last_min_coil_temp": last["min_coil_f"]}
 
 
 def for_unit(desc: Any, is_24v: bool) -> bool:
@@ -56,6 +67,11 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
     # No device class: HEAT would display off/on as "Normal"/"Hot"; translated as Off/Burning instead
     AciqBinaryDescription(key="furnace", translation_key="furnace", needs_equipment=True,
                           value_fn=lambda d, eq: bool(eq.get("furnace_on"))),
+    # Defrost (#9): indoor coil far below room temperature while heating with the heat pump
+    AciqBinaryDescription(key="defrost", translation_key="defrost",
+                          device_class=BinarySensorDeviceClass.RUNNING, needs_equipment=True,
+                          value_fn=lambda d, eq: None,
+                          coordinator_fn=lambda c: c.defrost, attrs_fn=_defrost_attrs),
     AciqBinaryDescription(key="blower", translation_key="blower",
                           device_class=BinarySensorDeviceClass.RUNNING, needs_equipment=True,
                           value_fn=lambda d, eq: bool(eq.get("blower_on"))),
@@ -122,4 +138,11 @@ class AciqBinarySensor(AciqEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
+        if self.entity_description.coordinator_fn is not None:
+            return self.entity_description.coordinator_fn(self.coordinator)
         return self.entity_description.value_fn(self.data, self.equipment)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator) if fn is not None else None

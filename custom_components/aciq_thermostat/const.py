@@ -112,6 +112,12 @@ AUTO_STATE_DRY = 3
 COIL_HEATING_DELTA = 15.0
 COIL_COOLING_DELTA = 10.0
 
+# Defrost (#9): in Heat the heat pump reverses to melt the outdoor coil's ice, so the indoor coil,
+# normally 90-110 F while heating, falls far below room temperature (to ~5 F in the first capture,
+# 2026-11-21). On at or below DEFROST_ON_F, off again at or above DEFROST_OFF_F (degF).
+DEFROST_ON_F = 40.0
+DEFROST_OFF_F = 55.0
+
 # Auto setpoint type (dev_app temp_zone_control): one setpoint or a heat/cool range
 AUTO_SETPOINT_SINGLE = "single"
 AUTO_SETPOINT_RANGE = "range"
