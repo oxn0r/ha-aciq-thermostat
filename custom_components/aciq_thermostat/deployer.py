@@ -88,6 +88,21 @@ ADB_ERRORS = (
 )
 
 
+async def tcp_open(host: str, port: int, timeout: float = 3.0) -> bool:
+    """True if a TCP connect to host:port succeeds within timeout."""
+    try:
+        async with asyncio.timeout(timeout):
+            _, writer = await asyncio.open_connection(host, port)
+    except (TimeoutError, OSError):
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        pass
+    return True
+
+
 class DeployError(Exception):
     """Raised when talking to or deploying on the thermostat fails."""
 

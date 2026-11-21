@@ -90,11 +90,26 @@ async def test_dhcp_same_ip_no_adb(hass: HomeAssistant, mock_deployer) -> None:
     pre.assert_not_awaited()
 
 
+TCP = "custom_components.aciq_thermostat.config_flow.tcp_open"
+
+
 async def test_dhcp_known_device_new_ip(hass: HomeAssistant, mock_deployer) -> None:
+    """Old address no longer answers: move, and keep the old one to fall back to (#15)."""
     e = _entry(hass, host=HOST)
-    r = await _dhcp(hass)
+    with patch(TCP, AsyncMock(return_value=False)) as tcp:
+        r = await _dhcp(hass)
     assert r["reason"] == "already_configured"
-    assert e.data[CONF_HOST] == "10.0.2.200"
+    assert e.data[CONF_HOST] == "10.0.2.200" and e.data["previous_host"] == HOST
+    assert {c.args for c in tcp.await_args_list} == {(HOST, 8080), (HOST, 5555)}
+
+
+async def test_dhcp_keeps_working_address(hass: HomeAssistant, mock_deployer) -> None:
+    """#15: the thermostat briefly seen on another network must not move a working entry."""
+    e = _entry(hass, host=HOST)
+    with patch(TCP, AsyncMock(side_effect=lambda host, port: port == 8080)):
+        r = await _dhcp(hass)
+    assert r["reason"] == "already_configured"
+    assert e.data[CONF_HOST] == HOST and "previous_host" not in e.data
 
 
 async def test_dhcp_cannot_connect(hass: HomeAssistant, mock_deployer) -> None:
@@ -118,6 +133,7 @@ async def test_reconfigure_success(hass: HomeAssistant, mock_deployer) -> None:
             r["flow_id"], {CONF_HOST: "10.0.2.9", CONF_PORT: 8081, CONF_ADB_PORT: 5555})
     assert r["reason"] == "reconfigure_successful"
     assert e.data[CONF_HOST] == "10.0.2.9" and e.data[CONF_PORT] == 8081
+    assert e.data["previous_host"] is None                     # set by hand: no fallback
 
 
 async def test_reconfigure_wrong_device(hass: HomeAssistant, mock_deployer) -> None:

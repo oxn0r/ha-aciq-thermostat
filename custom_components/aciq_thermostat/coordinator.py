@@ -38,6 +38,7 @@ from .const import (
     CONF_AUTO_DEPLOY,
     CONF_BLOCK_EGRESS,
     CONF_DRY_RETURN,
+    CONF_PREVIOUS_HOST,
     CONF_SYNC_CLOCK,
     CONF_EXTRA_ALLOWED_IPS,
     DEFAULT_ADB_PORT,
@@ -53,6 +54,8 @@ from .const import (
     DEV_HEAT,
     DOMAIN,
     EGRESS_VERIFY_INTERVAL,
+    HOST_FALLBACK_AFTER,
+    HOST_FALLBACK_INTERVAL,
     ISSUE_24V,
     ISSUE_24V_READ_ONLY,
     ISSUE_DEPLOY,
@@ -65,7 +68,7 @@ from .const import (
     REFRESH_DELAY,
     VERIFIED_FIRMWARE,
 )
-from .deployer import Deployer, DeployError
+from .deployer import Deployer, DeployError, tcp_open
 from .v24 import normalize, signature
 
 _LOGGER = logging.getLogger(__name__)
@@ -175,6 +178,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # mode (and setpoint) Dry was started from by Home Assistant: put back when Dry ends in Cool
         self.dry_return: dict[str, Any] | None = None
         self._egress_task: asyncio.Task[None] | None = None
+        # #15: retry the address the thermostat had before discovery moved the entry
+        self._host_next_try: float = 0.0
+        self._host_task: asyncio.Task[None] | None = None
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or self.host)},
             name=entry.title,
@@ -539,6 +545,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.outage.kind, self.outage.detail = kind, detail
             self._event("outage", kind=kind, detail=detail)
             _LOGGER.warning("Thermostat API on %s unavailable: %s", self.host, detail)
+        self._maybe_try_previous_host()
 
         can_deploy = self.auto_deploy and (
             self.last_deploy_attempt is None
@@ -559,6 +566,41 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             translation_domain=DOMAIN, translation_key="unreachable",
             translation_placeholders={"error": detail},
         ) from err
+
+    # ------------------------------------------------------ previous address (#15)
+
+    def _maybe_try_previous_host(self) -> None:
+        """Unreachable for a while after DHCP discovery moved the entry: try the address the
+        thermostat had before (TCP, then its serial over ADB) and move back if it's there."""
+        prev = self.config_entry.data.get(CONF_PREVIOUS_HOST)
+        if not prev or prev == self.host or self.outage is None or self.outage.kind != NET_DOWN:
+            return
+        now = time.monotonic()
+        if now - self.outage.started < HOST_FALLBACK_AFTER or now < self._host_next_try:
+            return
+        if self._host_task is not None and not self._host_task.done():
+            return
+        self._host_next_try = now + HOST_FALLBACK_INTERVAL
+        self._host_task = self.config_entry.async_create_background_task(
+            self.hass, self._try_previous_host(prev), f"{DOMAIN} previous host {self.host}")
+
+    async def _try_previous_host(self, prev: str) -> None:
+        if not await tcp_open(prev, self.adb_port, PROBE_TIMEOUT):
+            return
+        try:
+            res = await Deployer(prev, self.adb_port, self.api_port).preflight()
+        except DeployError as err:
+            _LOGGER.debug("Previous address %s answers but pre-flight failed: %s", prev, err)
+            return
+        if not res.serial or res.serial != self.config_entry.unique_id:
+            _LOGGER.info("Previous address %s answers, but it's another device; staying on %s", prev, self.host)
+            return
+        self._event("host_changed", host=prev, previous_host=self.host, reason="previous address answers")
+        _LOGGER.warning("Thermostat unreachable at %s but found at its previous address %s (same serial); "
+                        "switching back", self.host, prev)
+        # the data change reloads the entry (update listener)
+        self.hass.config_entries.async_update_entry(
+            self.config_entry, data={**self.config_entry.data, CONF_HOST: prev, CONF_PREVIOUS_HOST: self.host})
 
     def _recovered(self) -> None:
         if self.outage is None:

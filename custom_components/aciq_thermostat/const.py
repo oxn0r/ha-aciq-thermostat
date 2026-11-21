@@ -12,6 +12,9 @@ CONF_AUTO_DEPLOY = "auto_deploy"
 CONF_EXTRA_ALLOWED_IPS = "extra_allowed_ips"
 CONF_BLOCK_EGRESS = "block_egress"
 CONF_SYNC_CLOCK = "sync_clock"
+# Address the thermostat had before DHCP discovery moved the entry (#15): tried again if the new
+# address stops answering. Cleared by Reconfigure.
+CONF_PREVIOUS_HOST = "previous_host"
 CONF_DRY_RETURN = "dry_return_previous"
 CONF_HIDE_FAN = "hide_fan_speed"          # thermostat entity without fan speed (e.g. kept out of Apple Home)   # after Dry ends in Cool, put back the mode Dry started from
 
@@ -43,6 +46,10 @@ EGRESS_VERIFY_INTERVAL = 1800
 # Thermostat clock: checked at setup, after reboots/redeploys and this often; corrected
 # when off by at least CLOCK_MAX_OFFSET seconds (date has 1 s resolution on the device)
 CLOCK_CHECK_INTERVAL = 6 * 3600
+# #15: after this long unreachable, try the address the thermostat had before discovery moved it,
+# then again at most this often
+HOST_FALLBACK_AFTER = 120
+HOST_FALLBACK_INTERVAL = 300
 CLOCK_MAX_OFFSET = 2.0
 
 # ---- Device / firmware the control frames were verified on (2026-10-19) ----
