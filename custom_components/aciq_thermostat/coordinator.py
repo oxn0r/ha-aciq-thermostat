@@ -43,7 +43,10 @@ from .const import (
     DEFAULT_ADB_PORT,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
+    AUTO_STATE_HEAT,
     CLOCK_CHECK_INTERVAL,
+    DEFROST_OFF_F,
+    DEFROST_ON_F,
     CLOCK_MAX_OFFSET,
     DEPLOY_MIN_INTERVAL,
     DEV_AUTO,
@@ -182,6 +185,10 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.adb_down: bool = False
         self._adb_next_check: float = 0.0
         self._adb_task: asyncio.Task[None] | None = None
+        # Defrost (#9): current cycle and the last finished one, for the sensor and diagnostics
+        self.defrost: bool = False
+        self.defrost_cycle: dict[str, Any] | None = None
+        self.last_defrost: dict[str, Any] | None = None
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or self.host)},
             name=entry.title,
@@ -669,6 +676,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Boot and daemon start times from uptimes; only move on real changes (>2 min)."""
         self._track_v24(data)
         self._track_dry(data)
+        self._track_defrost(data)
         now = dt_util.utcnow()
         for attr, key in (("boot_time", "uptime_s"), ("daemon_start_time", "daemon_uptime_s")):
             secs = data.get(key)
@@ -685,6 +693,49 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._clock_check_due = True
         self._maybe_verify_egress()
         self._maybe_check_clock()
+
+    # --------------------------------------------------------------- defrost
+
+    def _track_defrost(self, data: dict[str, Any]) -> None:
+        """Defrost from the indoor coil temperature while heating with the heat pump (#9). Each
+        cycle is logged with its length and the indoor unit's run bits seen during it, so the
+        bit that marks a defrost can be mapped from any user's diagnostics."""
+        eq = data.get("equipment") or {}
+        coil = eq.get("indoor_coil_temp")
+        mode, auto_state = data.get("mode"), data.get("dev", {}).get("auto_state")
+        heating = mode == "heat" or (mode == "auto" and auto_state == AUTO_STATE_HEAT)
+        if not eq.get("available") or not isinstance(coil, (int, float)) or isinstance(coil, bool) or not heating:
+            active = False
+        elif self.defrost:
+            active = coil < DEFROST_OFF_F
+        else:
+            active = coil <= DEFROST_ON_F
+        signals = eq.get("defrost_signals") or {}
+        now = dt_util.utcnow()
+        if active and not self.defrost:
+            self.defrost_cycle = {"start": now.isoformat(timespec="seconds"), "min_coil_f": coil,
+                                  "outdoor_f": eq.get("outdoor_temp"), "signals_start": dict(signals),
+                                  "signals_seen": {k: v for k, v in signals.items() if v}}
+            self._event("defrost_start", coil_f=coil, outdoor_f=eq.get("outdoor_temp"), signals=dict(signals))
+            _LOGGER.info("Defrost started on %s (indoor coil %s F, outdoor %s F)", self.host, coil,
+                         eq.get("outdoor_temp"))
+        elif active and self.defrost_cycle is not None:
+            cyc = self.defrost_cycle
+            cyc["min_coil_f"] = min(cyc["min_coil_f"], coil)
+            for k, v in signals.items():
+                if v:
+                    cyc["signals_seen"][k] = max(v, cyc["signals_seen"].get(k, 0))
+        elif not active and self.defrost and self.defrost_cycle is not None:
+            cyc = self.defrost_cycle
+            started = dt_util.parse_datetime(cyc["start"]) or now
+            self.last_defrost = {**cyc, "end": now.isoformat(timespec="seconds"),
+                                 "duration_s": round((now - started).total_seconds())}
+            self.defrost_cycle = None
+            self._event("defrost_end", duration_s=self.last_defrost["duration_s"],
+                        min_coil_f=cyc["min_coil_f"], signals_seen=cyc["signals_seen"])
+            _LOGGER.info("Defrost ended on %s after %s", self.host,
+                         _fmt_duration(self.last_defrost["duration_s"]))
+        self.defrost = active
 
     # ------------------------------------------------------------------- dry
 

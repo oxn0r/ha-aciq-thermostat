@@ -241,6 +241,8 @@ class AciqClimate(AciqEntity, ClimateEntity):
         if self.data.get("wiring") == "24v":
             return self._v24_action(mode)
         eq = self.equipment
+        if self.coordinator.defrost:                   # #9: heat pump reversed to melt ice
+            return HVACAction.DEFROSTING
         if eq.get("furnace_on"):
             return HVACAction.HEATING
         compressor = bool(eq.get("compressor_hz")) or bool(self.data.get("compressor_running"))

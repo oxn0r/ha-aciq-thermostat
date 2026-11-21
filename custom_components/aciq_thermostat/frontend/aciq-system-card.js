@@ -154,22 +154,26 @@ class AciqSystemCard extends HTMLElement {
     const dry = mode === "dry" || climate?.state === "dry";
     const dryLeft = this._num("dry_left");
 
-    // Refrigerant direction: in heat the hot gas goes indoors, in cool (and Dry) it comes back.
-    const heatingHP = comp && action !== "cooling" && action !== "drying" && !dry;
+    // Defrost: the heat pump runs reversed (indoor coil cold) and the outdoor fan stops
+    const defrost = action === "defrosting";
+    // Refrigerant direction: in heat the hot gas goes indoors, in cool (and Dry, and defrost) it comes back.
+    const heatingHP = comp && action !== "cooling" && action !== "drying" && !dry && !defrost;
     const refColor = !comp ? "var(--divider-color, #555)" : heatingHP ? "#ff6b3d" : "#2b8cff";
     const step = (d) => Math.round(d * 20) / 20;   // 0.05 s steps: small Hz changes keep the same speed
-    const fanDur = comp ? step(Math.max(0.35, 2.4 - (hz / HZ_MAX) * 2)) : 0;
+    const outFan = comp && !defrost;
+    const fanDur = outFan ? step(Math.max(0.35, 2.4 - (hz / HZ_MAX) * 2)) : 0;
     const blowDur = blow ? step(Math.max(0.3, 1.4 - ((stage || 1) - 1) * 0.3)) : 0;
     const supplyColor = blow ? (furn ? "#ff5a36" : this._tempColor(coil)) : "var(--divider-color, #555)";
 
     let headline;
     if (unavailable) headline = "Thermostat unavailable";
     else if (furn) headline = "Heating · gas furnace";
+    else if (defrost) headline = `Defrosting${comp ? ` · heat pump ${hz.toFixed(0)} Hz` : ""}`;
     else if (dry) headline = `Drying${comp ? ` · heat pump ${hz.toFixed(0)} Hz` : ""}${dryLeft ? ` · ${dryLeft.toFixed(0)} min left` : ""}`;
     else if (comp) headline = `${action === "cooling" ? "Cooling" : "Heating"} · heat pump ${hz.toFixed(0)} Hz`;
     else if (blow) headline = "Fan only";
     else headline = mode === "off" ? "System off" : "Idle";
-    const headColor = furn ? "#ff5a36" : comp || dry ? (dry ? "#2b8cff" : refColor) : "var(--secondary-text-color)";
+    const headColor = furn ? "#ff5a36" : defrost || dry ? "#2b8cff" : comp ? refColor : "var(--secondary-text-color)";
 
     const title = this._config.title ?? "HVAC system";
     const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ") : "");
@@ -229,7 +233,7 @@ class AciqSystemCard extends HTMLElement {
     <g class="hit" data-k="hz">
       <rect class="box" x="8" y="96" width="96" height="84" rx="6"/>
       <circle cx="56" cy="134" r="27" fill="none" stroke="var(--divider-color,#555)" stroke-width="1.5"/>
-      <g class="${comp ? "spin" : ""}" style="transform-origin:56px 134px;animation-duration:${fanDur}s">
+      <g class="${outFan ? "spin" : ""}" style="transform-origin:56px 134px;animation-duration:${fanDur}s">
         ${[0, 90, 180, 270].map((a) => `<path d="M56 134 C49 128 49 114 56 110 C63 114 63 128 56 134Z" fill="${comp ? refColor : "var(--secondary-text-color)"}" transform="rotate(${a + 45} 56 134)"/>`).join("")}
       </g>
       <circle cx="56" cy="134" r="3.5" fill="var(--primary-text-color)"/>

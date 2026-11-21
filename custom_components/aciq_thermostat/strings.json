@@ -268,6 +268,23 @@
       },
       "reversing_valve": {
         "name": "Reversing valve (O/B)"
+      },
+      "defrost": {
+        "name": "Defrost",
+        "state_attributes": {
+          "last_start": {
+            "name": "Last defrost started"
+          },
+          "last_end": {
+            "name": "Last defrost ended"
+          },
+          "last_duration_s": {
+            "name": "Last defrost duration"
+          },
+          "last_min_coil_temp": {
+            "name": "Last defrost lowest coil temperature"
+          }
+        }
       }
     },
     "button": {
