@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.0 — unreleased
+### Added
+- **Defrost** sensor ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)): on while the heat pump defrosts.
+  While heating with the heat pump, a defrost runs it reversed and the indoor coil falls far below room
+  temperature (to about 5 °F in the first capture, from 90–110 °F while heating), so the sensor turns on at or
+  below 40 °F and off again above 55 °F. The thermostat shows *Defrosting* as its action, and the system card shows
+  *Defrosting* with the refrigerant flow reversed and the outdoor fan stopped. Attributes: the last defrost's
+  start, end, length and lowest coil temperature.
+- Diagnostics: each defrost is logged with its length and the indoor unit's run bits seen during it, to map the
+  bit that marks a defrost.
+### Fixed
+- **Control keeps working when the thermostat's ADB stops answering**
+  ([#14](https://github.com/oxn0r/ha-aciq-thermostat/issues/14)). If ADB (port 5555) doesn't answer but the
+  integration's service on the thermostat still does, Home Assistant starts with it instead of retrying forever,
+  and a repair notice recommends power-cycling the thermostat. Updates to the service, the cloud block, clock sync
+  and debug reports wait until ADB is back; the integration checks every 5 minutes and catches up by itself.
+- **The thermostat's address no longer moves away from one that works**
+  ([#15](https://github.com/oxn0r/ha-aciq-thermostat/issues/15)). DHCP discovery only changes the stored address
+  when the current one stops answering, and keeps the old one. If the new address then stays unreachable for
+  2 minutes, the integration tries the previous one and moves back when the same thermostat answers there.
+  Address changes are logged and recorded in diagnostics. Reconfigure clears the fallback.
+
 ## 1.3.2 — 2026-11-15
 ### Fixed
 - **Aux heat now follows the thermostat's own setting**, for systems with or without backup heat (furnace or heat

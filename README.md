@@ -150,6 +150,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | **Dehumidification** | switch | the screen's *Dehumidification* switch: cooling tuned to remove more moisture (not Dry). Turns on in Cool only, like the screen (greyed out while off outside Cool); off in any mode. Only on systems whose indoor unit has it ([#11](https://github.com/oxn0r/ha-aciq-thermostat/issues/11)) |
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
+| **Defrost** | binary_sensor | heat pump defrosting: on while heating with the heat pump when the indoor coil falls to 40 °F or below (it runs reversed to melt the outdoor coil's ice), off again above 55 °F. The thermostat card shows *Defrosting*. Attributes: last defrost's start, end, length and lowest coil temperature ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)) |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download (takes ~10 s; the page shows no pop-up) |
@@ -387,6 +388,7 @@ packets/s to zero, and system load fell noticeably.
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
+| Repair notice *Thermostat ADB unavailable — control still works* | The thermostat's ADB service stopped answering while the integration's service kept running. Readings and control keep working; power-cycle the thermostat to bring ADB back, and the notice clears by itself ([#14](https://github.com/oxn0r/ha-aciq-thermostat/issues/14)) |
 | Setup says *Could not reach the thermostat over ADB* | Check IP and port 5555 reachability from HA; disconnect any other `adb` session; power-cycle the thermostat if adbd is stuck |
 | *Pre-flight checks failed* | Firmware or device differs from the supported builds. Nothing was changed on the thermostat, and a debug report was saved: see [Setup failed at pre-flight](#setup-failed-at-pre-flight-get-the-saved-report) |
 | Reporting a problem | Right after it happens, follow [Getting a debug report](#getting-a-debug-report-and-diagnostics) and attach the file to a [bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new?template=bug_report.yml). No ADB capture is needed |
