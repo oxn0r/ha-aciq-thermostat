@@ -129,6 +129,8 @@ const STATES = {
   furnace: { mode: "heat", action: "heating", furn: true, blow: true, stage: 4, coil: 70 },
   idle: { mode: "heat", action: "idle" },
   dry: { mode: "dry", action: "drying", comp: true, blow: true, hz: 40, stage: 1, coil: 45, left: 23 },
+  defrost: { mode: "heat", action: "defrosting", comp: true, blow: false, hz: 80, coil: 5 },
+  defrost_pause: { mode: "heat", action: "defrosting", coil: 12 },
 };
 
 for (const [name, st] of Object.entries(STATES)) {
@@ -137,11 +139,13 @@ for (const [name, st] of Object.entries(STATES)) {
     const html = c.shadowRoot.innerHTML;
     const head = html.match(/<span class="head">([^<]*)<\/span>/)[1];
     assert.equal(head, { heat: "Heating · heat pump 58 Hz", cool: "Cooling · heat pump 47 Hz",
-      furnace: "Heating · gas furnace", idle: "Idle", dry: "Drying · heat pump 40 Hz · 23 min left" }[name]);
-    assert.equal(/class="spin" style="transform-origin:56px 134px/.test(html), !!st.comp);     // outdoor fan
+      furnace: "Heating · gas furnace", idle: "Idle", dry: "Drying · heat pump 40 Hz · 23 min left",
+      defrost: "Defrosting · heat pump 80 Hz", defrost_pause: "Defrosting" }[name]);
+    const defrost = name.startsWith("defrost");                  // outdoor fan stops in a defrost
+    assert.equal(/class="spin" style="transform-origin:56px 134px/.test(html), !!st.comp && !defrost);
     assert.equal(/class="spin" style="transform-origin:205px 193px/.test(html), !!st.blow);    // blower
     assert.equal(html.includes('class="flame"'), !!st.furn);
-    const cooling = name === "cool" || name === "dry";            // Dry runs the heat pump cooling
+    const cooling = name === "cool" || name === "dry" || defrost;  // Dry and defrost run it reversed
     if (st.comp) {
       assert.ok(html.includes(`class="flow ${cooling ? "runrev" : "run"}" d="M104 150 H170"`));
       assert.ok(html.includes(`stroke="${cooling ? "#2b8cff" : "#ff6b3d"}" d="M104 150 H170"`));
