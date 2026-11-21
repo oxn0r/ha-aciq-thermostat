@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import copy
 from typing import Any
 
@@ -89,7 +91,7 @@ async def test_auto_unknown_at_startup_is_idle_not_a_guess(hass, aioclient_mock,
     assert _action(hass) == HVACAction.IDLE
 
 
-async def test_replay_reported_sequence_never_flips(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_replay_reported_sequence_never_flips(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
     """Exact readings from the v1.0.0 report (2026-10-20 01:14-01:17 UTC), with and without auto_state."""
     rows = [(71.9, 56, 105.8), (72.0, 54, 105.8), (72.1, 54, 107.6), (72.1, 54, 109.4), (72.4, 50, 109.4)]
     for auto_state in (2, 0, 4):
@@ -99,7 +101,8 @@ async def test_replay_reported_sequence_never_flips(hass, aioclient_mock, mock_d
                 for r, hz, c in rows]
         assert seen == [HVACAction.HEATING] * len(rows), (auto_state, seen)
         await hass.config_entries.async_unload(e.entry_id)
-        await hass.config_entries.async_remove(e.entry_id)
+        with patch("custom_components.aciq_thermostat.deployer.Deployer.stop_daemon", AsyncMock()):
+            await hass.config_entries.async_remove(e.entry_id)      # no real ADB on removal
         aioclient_mock.clear_requests()
 
 

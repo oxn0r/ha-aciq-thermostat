@@ -174,8 +174,9 @@ async def test_metric_ha_converts(hass: HomeAssistant, aioclient_mock, mock_depl
 
 async def test_device_versions(hass: HomeAssistant, aioclient_mock, mock_deployer, state) -> None:
     from homeassistant.helpers import device_registry as dr
-    await _setup(hass, aioclient_mock, state)
-    dev = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, SERIAL)})
+    e = await _setup(hass, aioclient_mock, state)
+    # by config entry: async_get_device(identifiers=...) is deprecated from HA 2026.10
+    (dev,) = dr.async_entries_for_config_entry(dr.async_get(hass), e.entry_id)
     assert dev.sw_version == "LD:1.2.60" and dev.hw_version == "V4.3" and dev.serial_number == SERIAL
     assert hass.states.get("sensor.thermostat_indoor_unit_firmware").state == "00AC000111171171000066111008"
 

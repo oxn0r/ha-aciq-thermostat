@@ -495,7 +495,8 @@ async def test_egress_verified_after_reboot_and_periodically(hass, aioclient_moc
         assert "was missing and has been re-applied" in caplog.text
 
 
-async def test_egress_check_failure_retried(hass, aioclient_mock, mock_deployer, state, caplog) -> None:
+async def test_egress_check_failure_retried(hass, aioclient_mock, mock_deployer, state, caplog, tcp_probe) -> None:
+    tcp_probe.result = {8080: "open", 5555: "open"}     # ADB answers: plain failures, not #14
     from custom_components.aciq_thermostat.deployer import DeployError
     with patch("custom_components.aciq_thermostat.deployer.Deployer.verify_egress",
                AsyncMock(side_effect=DeployError("adb busy"))):
@@ -554,7 +555,8 @@ async def test_clock_checked_at_setup_after_reboot_and_periodically(hass, aiocli
         assert st.attributes["last_correction_offset_s"] == -2.4   # last correction remembered
 
 
-async def test_clock_sync_option_off_and_failures(hass, aioclient_mock, mock_deployer, state) -> None:
+async def test_clock_sync_option_off_and_failures(hass, aioclient_mock, mock_deployer, state, tcp_probe) -> None:
+    tcp_probe.result = {8080: "open", 5555: "open"}     # ADB answers: plain failures, not #14
     from custom_components.aciq_thermostat.deployer import DeployError
     with patch("custom_components.aciq_thermostat.deployer.Deployer.sync_clock", AsyncMock()) as sync:
         e = await _setup(hass, aioclient_mock, state, options={CONF_AUTO_DEPLOY: True, "sync_clock": False})
