@@ -31,6 +31,7 @@ from .const import (
     CONF_DRY_RETURN,
     CONF_EXTRA_ALLOWED_IPS,
     CONF_HIDE_FAN,
+    CONF_PREVIOUS_HOST,
     CONF_SYNC_CLOCK,
     DEFAULT_ADB_PORT,
     DEFAULT_NAME,
@@ -38,7 +39,7 @@ from .const import (
     DOMAIN,
     NEW_ISSUE_URL,
 )
-from .deployer import Deployer, DeployError, PreflightResult
+from .deployer import Deployer, DeployError, PreflightResult, tcp_open
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,7 +173,18 @@ class AciqConfigFlow(ConfigFlow, domain=DOMAIN):
         if not res.passed or not res.serial:
             return self.async_abort(reason="not_supported")
         await self.async_set_unique_id(res.serial)
-        # Known thermostat with a new IP -> update the entry (discovery-update-info)
+        # Known thermostat with a new IP -> update the entry (discovery-update-info), but (#15) only
+        # if its current address no longer answers: a thermostat that briefly joins another network
+        # must not pull a working entry away. The old address is kept to fall back to.
+        known = self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, res.serial)
+        if known is not None and (old := known.data.get(CONF_HOST)) and old != host:
+            ports = (known.data.get(CONF_PORT, DEFAULT_PORT), known.data.get(CONF_ADB_PORT, DEFAULT_ADB_PORT))
+            if any([await tcp_open(old, p) for p in ports]):
+                _LOGGER.info("Thermostat %s also seen at %s; keeping %s, which still answers", res.serial, host, old)
+                return self.async_abort(reason="already_configured")
+            _LOGGER.warning("Thermostat moved from %s to %s (seen on DHCP, same serial); %s is kept to fall "
+                            "back to if %s stops answering", old, host, old, host)
+            self._abort_if_unique_id_configured(updates={CONF_HOST: host, CONF_PREVIOUS_HOST: old})
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
         self._input = {CONF_HOST: host, CONF_NAME: DEFAULT_NAME, CONF_PORT: DEFAULT_PORT,
                        CONF_ADB_PORT: DEFAULT_ADB_PORT}
@@ -193,7 +205,8 @@ class AciqConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_mismatch(reason="wrong_device")
                 return self.async_update_reload_and_abort(
                     entry,
-                    data_updates={k: user_input[k] for k in (CONF_HOST, CONF_PORT, CONF_ADB_PORT)},
+                    data_updates={**{k: user_input[k] for k in (CONF_HOST, CONF_PORT, CONF_ADB_PORT)},
+                                  CONF_PREVIOUS_HOST: None},          # set by hand: nothing to fall back to
                 )
         schema = vol.Schema(
             {
