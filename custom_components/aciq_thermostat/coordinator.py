@@ -45,6 +45,9 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     AUTO_STATE_HEAT,
     CLOCK_CHECK_INTERVAL,
+    DEFROST_COIL_GAP_F,
+    DEFROST_COIL_MAX_F,
+    DEFROST_END_F,
     DEFROST_OFF_F,
     DEFROST_ON_F,
     CLOCK_MAX_OFFSET,
@@ -619,7 +622,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # --------------------------------------------------------------- defrost
 
     def _track_defrost(self, data: dict[str, Any]) -> None:
-        """Defrost from the indoor coil temperature while heating with the heat pump (#9). Each
+        """Defrost while heating with the heat pump (#9): the indoor coil colder than the outdoor
+        coil (reversed refrigerant), or without an outdoor coil reading, far below room. Each
         cycle is logged with its length and the indoor unit's run bits seen during it, so the
         bit that marks a defrost can be mapped from any user's diagnostics."""
         eq = data.get("equipment") or {}
@@ -628,6 +632,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         heating = mode == "heat" or (mode == "auto" and auto_state == AUTO_STATE_HEAT)
         if not eq.get("available") or not isinstance(coil, (int, float)) or isinstance(coil, bool) or not heating:
             active = False
+        elif isinstance(ocoil := eq.get("outdoor_coil_temp"), (int, float)) and not isinstance(ocoil, bool):
+            if self.defrost:
+                active = coil < DEFROST_END_F and ocoil >= coil
+            else:
+                active = coil <= DEFROST_COIL_MAX_F and ocoil - coil >= DEFROST_COIL_GAP_F
         elif self.defrost:
             active = coil < DEFROST_OFF_F
         else:
