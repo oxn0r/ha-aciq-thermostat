@@ -123,9 +123,16 @@ AUTO_STATE_DRY = 3
 COIL_HEATING_DELTA = 15.0
 COIL_COOLING_DELTA = 10.0
 
-# Defrost (#9): in Heat the heat pump reverses to melt the outdoor coil's ice, so the indoor coil,
-# normally 90-110 F while heating, falls far below room temperature (to ~5 F in the first capture,
-# 2026-11-21). On at or below DEFROST_ON_F, off again at or above DEFROST_OFF_F (degF).
+# Defrost (#9): in Heat the heat pump reverses to melt the outdoor coil's ice, so the indoor coil
+# (normally 90-110 F while heating) turns colder than the outdoor coil, which heats up to 60-80 F.
+# Checked on 11 days of a TL04-1's history (2026-11-21): 21 defrosts, from 1-minute ones in mild
+# weather (indoor coil only down to ~43 F) to 6-minute ones (~5 F), and no false starts. On when the
+# indoor coil is at or below DEFROST_COIL_MAX_F and at least DEFROST_COIL_GAP_F below the outdoor
+# coil; off when it reaches DEFROST_END_F or the outdoor coil is colder again (degF).
+DEFROST_COIL_MAX_F = 50.0
+DEFROST_COIL_GAP_F = 5.0
+DEFROST_END_F = 60.0
+# Without an outdoor coil reading: indoor coil alone (misses the short, mild-weather defrosts)
 DEFROST_ON_F = 40.0
 DEFROST_OFF_F = 55.0
 
