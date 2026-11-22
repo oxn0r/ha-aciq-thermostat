@@ -196,6 +196,11 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.defrost: bool = False
         self.defrost_cycle: dict[str, Any] | None = None
         self.last_defrost: dict[str, Any] | None = None
+        # indoor unit protect_state: raw value changes, for mapping its codes from diagnostics
+        self.protect_state: int | None = None
+        self.protection_cycle: dict[str, Any] | None = None
+        self.last_protection: dict[str, Any] | None = None
+        self.protection_log: deque[dict[str, Any]] = deque(maxlen=20)
         # #15: retry the address the thermostat had before discovery moved the entry
         self._host_next_try: float = 0.0
         self._host_task: asyncio.Task[None] | None = None
@@ -729,6 +734,7 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Boot and daemon start times from uptimes; only move on real changes (>2 min)."""
         self._track_v24(data)
         self._track_dry(data)
+        self._track_protection(data)
         self._track_defrost(data)
         now = dt_util.utcnow()
         for attr, key in (("boot_time", "uptime_s"), ("daemon_start_time", "daemon_uptime_s")):
@@ -748,6 +754,33 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._maybe_check_clock()
 
     # --------------------------------------------------------------- defrost
+
+    def _track_protection(self, data: dict[str, Any]) -> None:
+        """Log every change of the indoor unit's protect_state with what the system was
+        doing, so its values can be mapped; it is not counted as a fault."""
+        eq = data.get("equipment") or {}
+        value = eq.get("protect_state") if eq.get("available") else None
+        if not isinstance(value, int) or isinstance(value, bool):
+            return
+        if value == self.protect_state:
+            return
+        old, self.protect_state = self.protect_state, value
+        now = dt_util.utcnow()
+        entry = {"time": now.isoformat(timespec="seconds"), "from": old, "to": value,
+                 "mode": data.get("mode"), "compressor_hz": eq.get("compressor_hz"),
+                 "furnace_on": eq.get("furnace_on"), "indoor_coil_f": eq.get("indoor_coil_temp"),
+                 "outdoor_coil_f": eq.get("outdoor_coil_temp"), "outdoor_f": eq.get("outdoor_temp")}
+        if old is not None:
+            self.protection_log.append(entry)
+        _LOGGER.debug("protect_state on %s: %s -> %s (%s)", self.host, old, value, entry)
+        cyc = self.protection_cycle
+        if cyc is not None:
+            started = dt_util.parse_datetime(cyc["start"]) or now
+            self.last_protection = {**cyc, "end": now.isoformat(timespec="seconds"),
+                                    "duration_s": round((now - started).total_seconds())}
+            self.protection_cycle = None
+        if value:
+            self.protection_cycle = {"value": value, "start": now.isoformat(timespec="seconds")}
 
     def _track_defrost(self, data: dict[str, Any]) -> None:
         """Defrost while heating with the heat pump (#9): the indoor coil colder than the outdoor
@@ -769,7 +802,9 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             active = coil < DEFROST_OFF_F
         else:
             active = coil <= DEFROST_ON_F
-        signals = eq.get("defrost_signals") or {}
+        signals = dict(eq.get("defrost_signals") or {})
+        if isinstance(ps := eq.get("protect_state"), int) and not isinstance(ps, bool):
+            signals["protect_state"] = ps
         now = dt_util.utcnow()
         if active and not self.defrost:
             self.defrost_cycle = {"start": now.isoformat(timespec="seconds"), "min_coil_f": coil,

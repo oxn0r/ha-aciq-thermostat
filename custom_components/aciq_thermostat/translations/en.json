@@ -240,7 +240,18 @@
         "name": "Blower"
       },
       "fault": {
-        "name": "Fault"
+        "name": "Fault",
+        "state_attributes": {
+          "fault_codes": {
+            "name": "Fault codes"
+          },
+          "fault_state": {
+            "name": "Fault state"
+          },
+          "protect_state": {
+            "name": "Protection state"
+          }
+        }
       },
       "aux_heat_allowed": {
         "name": "Aux heat allowed"
@@ -283,6 +294,26 @@
           },
           "last_min_coil_temp": {
             "name": "Last defrost lowest coil temperature"
+          }
+        }
+      },
+      "protection": {
+        "name": "Protection",
+        "state_attributes": {
+          "protect_state": {
+            "name": "Protection state"
+          },
+          "last_value": {
+            "name": "Last protection state"
+          },
+          "last_start": {
+            "name": "Last protection started"
+          },
+          "last_end": {
+            "name": "Last protection ended"
+          },
+          "last_duration_s": {
+            "name": "Last protection length"
           }
         }
       }

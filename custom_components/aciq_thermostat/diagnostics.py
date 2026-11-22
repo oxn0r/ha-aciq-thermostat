@@ -52,6 +52,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "commands": list(c.commands),
         "dry_return": c.dry_return,
         "defrost": {"active": c.defrost, "cycle": c.defrost_cycle, "last": c.last_defrost},
+        "protection": {"value": c.protect_state, "cycle": c.protection_cycle, "last": c.last_protection,
+                       "changes": list(c.protection_log)},
         "v24_events": list(c.v24_events),
         "auto_range": {
             "zone_control": (c.data or {}).get("dev", {}).get("zone_control"),

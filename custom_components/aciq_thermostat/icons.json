@@ -168,6 +168,12 @@
       },
       "reversing_valve": {
         "default": "mdi:swap-horizontal"
+      },
+      "protection": {
+        "default": "mdi:shield-check-outline",
+        "state": {
+          "on": "mdi:shield-alert-outline"
+        }
       }
     },
     "button": {

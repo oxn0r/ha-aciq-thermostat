@@ -51,6 +51,23 @@ def _defrost_attrs(c: AciqCoordinator) -> dict[str, Any] | None:
             "last_min_coil_temp": last["min_coil_f"]}
 
 
+def _fault_attrs(c: AciqCoordinator) -> dict[str, Any] | None:
+    eq = (c.data or {}).get("equipment") or {}
+    if not eq.get("available"):
+        return None
+    return {"fault_codes": list(eq.get("fault_codes") or []), "fault_state": eq.get("fault_state"),
+            "protect_state": eq.get("protect_state")}
+
+
+def _protection_attrs(c: AciqCoordinator) -> dict[str, Any] | None:
+    eq = (c.data or {}).get("equipment") or {}
+    attrs: dict[str, Any] = {"protect_state": eq.get("protect_state")} if eq.get("available") else {}
+    if last := c.last_protection:
+        attrs.update({"last_value": last["value"], "last_start": last["start"], "last_end": last["end"],
+                      "last_duration_s": last["duration_s"]})
+    return attrs or None
+
+
 def for_unit(desc: Any, is_24v: bool) -> bool:
     """Equipment-memory entities only exist on communicating units; terminal ones on 24 V."""
     if is_24v:
@@ -75,10 +92,16 @@ BINARY: tuple[AciqBinaryDescription, ...] = (
     AciqBinaryDescription(key="blower", translation_key="blower",
                           device_class=BinarySensorDeviceClass.RUNNING, needs_equipment=True,
                           value_fn=lambda d, eq: bool(eq.get("blower_on"))),
+    # protect_state is not a fault (2026-11 history: on around every defrost): it is set around every defrost's reversal and in
+    # normal protection/limit states, so it has its own Protection sensor
     AciqBinaryDescription(key="fault", translation_key="fault",
                           device_class=BinarySensorDeviceClass.PROBLEM, needs_equipment=True,
-                          value_fn=lambda d, eq: any(eq.get("fault_codes", []))
-                          or bool(eq.get("fault_state")) or bool(eq.get("protect_state"))),
+                          value_fn=lambda d, eq: any(eq.get("fault_codes", [])) or bool(eq.get("fault_state")),
+                          attrs_fn=_fault_attrs),
+    AciqBinaryDescription(key="protection", translation_key="protection",
+                          entity_category=EntityCategory.DIAGNOSTIC, needs_equipment=True,
+                          value_fn=lambda d, eq: bool(eq.get("protect_state")),
+                          attrs_fn=_protection_attrs),
     # dev_app elec_heat: backup (furnace) heat permitted in the current mode (on in Heat);
     # not "furnace burning" -- that's the furnace sensor. Diagnostic, still enabled.
     AciqBinaryDescription(key="aux_heat_allowed", translation_key="aux_heat_allowed",

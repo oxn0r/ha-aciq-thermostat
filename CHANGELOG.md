@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.1 — unreleased
+### Fixed
+- **Fault no longer turns on at every defrost.** The indoor unit sets its protection state for a couple of
+  minutes around each defrost's reversal (and in normal limit states, such as holding the blower while the
+  coil is cold), and Fault counted it as a fault. On one dual-fuel system, Fault turned on 29 times in
+  3 weeks of November, always around a heat pump reversal, with no fault code. Fault is now on only for
+  fault codes or the indoor unit's fault state, and has them as attributes (`fault_codes`, `fault_state`,
+  `protect_state`).
+  If an automation used Fault to catch protection states, switch it to the new Protection sensor.
+### Added
+- **Protection** diagnostic sensor: on while the indoor unit reports a protection state, with the raw value
+  and the last protection's value, start, end and length as attributes.
+- Diagnostics: the last 20 protection state changes, with the mode, compressor speed, furnace and coil
+  temperatures at the time, to map what each value means. The protection state is also logged at debug
+  level and recorded with each defrost.
+
+No change to the service on the thermostat: updating does not restart anything there.
+
 ## 1.4.0 — 2026-11-21
 ### Added
 - **Defrost** sensor ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)): on while the heat pump defrosts.

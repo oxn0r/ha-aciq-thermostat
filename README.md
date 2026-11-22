@@ -151,7 +151,8 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | **Furnace** | binary_sensor | **burner on**; verified against the furnace firing |
 | Compressor · Blower | binary_sensor | running |
 | **Defrost** | binary_sensor | heat pump defrosting: on while heating with the heat pump when it runs reversed to melt the outdoor coil's ice, seen as the indoor coil turning colder than the outdoor coil (at or below 50 °F); off when the indoor coil is back to 60 °F. The thermostat card shows *Defrosting*. Attributes: last defrost's start, end, length and lowest coil temperature ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)) |
-| Fault · Fault codes | binary_sensor / sensor | equipment fault or protection state |
+| Fault · Fault codes | binary_sensor / sensor | equipment fault: a fault code or the indoor unit's fault state. Attributes: `fault_codes`, `fault_state`, `protect_state` |
+| Protection *(diagnostic)* | binary_sensor | the indoor unit reports a protection state. This is normal around a defrost and in limit states, and isn't counted as a fault. Attributes: raw value; last protection's value, start, end and length |
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download (takes ~10 s; the page shows no pop-up) |
 | Last debug report | diagnostic | when *Collect debug report* last finished; attributes: pre-flight result, failed checks, whether `dev_app` has debug info |
