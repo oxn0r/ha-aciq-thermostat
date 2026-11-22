@@ -9,6 +9,7 @@
   fault codes or the indoor unit's fault state, and has them as attributes (`fault_codes`, `fault_state`,
   `protect_state`).
   If an automation used Fault to catch protection states, switch it to the new Protection sensor.
+- System card: the Fault chip shows just *Fault* when there's no fault code, instead of *Fault none*.
 ### Added
 - **Protection** diagnostic sensor: on while the indoor unit reports a protection state, with the raw value
   and the last protection's value, start, end and length as attributes.

@@ -55,7 +55,8 @@ function hassFor(sys, st) {
     [n("_indoor_coil_temperature")]: s(st.coil ?? 72), [n("_indoor_unit_t1_temperature")]: s(69),
     [n("_compressor_frequency")]: s(st.hz ?? 0), [n("_blower_stage")]: s(st.stage ?? 0),
     [n("_compressor")]: s(st.comp ? "on" : "off"), [n("_furnace")]: s(st.furn ? "on" : "off"),
-    [n("_blower")]: s(st.blow ? "on" : "off"), [n("_fault")]: s("off"), [n("_fault_codes")]: s("none"),
+    [n("_blower")]: s(st.blow ? "on" : "off"), [n("_fault")]: s(st.fault ? "on" : "off"),
+    [n("_fault_codes")]: s(st.codes ?? "none"),
     [n("_dry_time_left")]: s(st.left ?? 0),
     "sensor.furnace_filter_life_used": s(st.filter ?? 42),
   };
@@ -155,6 +156,16 @@ for (const [name, st] of Object.entries(STATES)) {
     assert.ok(html.includes("Filter 42%"));
   });
 }
+
+test("fault chip shows the code only when there is one", () => {
+  const chip = (st) => card({}, hassFor(system("family_room"), { mode: "heat", action: "idle", ...st }))
+    .shadowRoot.innerHTML.match(/<span class="chip bad">([^<]*)<\/span>/)?.[1];
+  assert.equal(chip({}), undefined);
+  assert.equal(chip({ fault: true }), "Fault");                       // fault state only
+  assert.equal(chip({ fault: true, codes: "unavailable" }), "Fault");
+  assert.equal(chip({ fault: true, codes: "12" }), "Fault 12");
+  assert.equal(chip({ fault: false, codes: "12" }), undefined);
+});
 
 test("editor maps the form to the card config", () => {
   const ed = new (customElements.get("aciq-system-card-editor"))();

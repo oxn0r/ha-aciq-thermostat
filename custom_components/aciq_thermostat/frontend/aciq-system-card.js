@@ -177,7 +177,10 @@ class AciqSystemCard extends HTMLElement {
 
     const title = this._config.title ?? "HVAC system";
     const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ") : "");
-    const faultTxt = fault ? `<span class="chip bad">Fault ${this._st("fault_codes")?.state || ""}</span>` : "";
+    // Fault can be on from the indoor unit's fault state alone, with no code: then just "Fault"
+    const codes = this._st("fault_codes")?.state;
+    const codeTxt = codes && !["none", "unknown", "unavailable"].includes(codes) ? ` ${codes}` : "";
+    const faultTxt = fault ? `<span class="chip bad">Fault${codeTxt}</span>` : "";
 
     this.shadowRoot.innerHTML = `
 <style>
