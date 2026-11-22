@@ -3,8 +3,8 @@
 ## 1.4.1 — 2026-11-22
 ### Fixed
 - **Fault no longer turns on at every defrost.** The indoor unit sets its protection state for a couple of
-  minutes around each defrost's reversal (and in normal limit states, such as holding the blower while the
-  coil is cold), and Fault counted it as a fault. On one dual-fuel system, Fault turned on 29 times in
+  minutes around each defrost's reversal (and likely in other normal limit states; the values aren't mapped
+  yet), and Fault counted it as a fault. On one dual-fuel system, Fault turned on 29 times in
   3 weeks of November, always around a heat pump reversal, with no fault code. Fault is now on only for
   fault codes or the indoor unit's fault state, and has them as attributes (`fault_codes`, `fault_state`,
   `protect_state`).
