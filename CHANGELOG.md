@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.1 — unreleased
+## 1.4.1 — 2026-11-22
 ### Fixed
 - **Fault no longer turns on at every defrost.** The indoor unit sets its protection state for a couple of
   minutes around each defrost's reversal (and in normal limit states, such as holding the blower while the
