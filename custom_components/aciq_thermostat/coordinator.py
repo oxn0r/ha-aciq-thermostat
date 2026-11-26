@@ -51,6 +51,7 @@ from .const import (
     DEFROST_COIL_MAX_F,
     DEFROST_END_F,
     DEFROST_OFF_F,
+    DEFROST_PROTECT_STATE,
     DEFROST_ON_F,
     CLOCK_MAX_OFFSET,
     DEPLOY_MIN_INTERVAL,
@@ -784,7 +785,8 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _track_defrost(self, data: dict[str, Any]) -> None:
         """Defrost while heating with the heat pump (#9): the indoor coil colder than the outdoor
-        coil (reversed refrigerant), or without an outdoor coil reading, far below room. Each
+        coil (reversed refrigerant), or without an outdoor coil reading, far below room; it starts
+        earlier on the indoor unit's protect_state DEFROST_PROTECT_STATE, set as the defrost begins. Each
         cycle is logged with its length and the indoor unit's run bits seen during it, so the
         bit that marks a defrost can be mapped from any user's diagnostics."""
         eq = data.get("equipment") or {}
@@ -802,20 +804,28 @@ class AciqCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             active = coil < DEFROST_OFF_F
         else:
             active = coil <= DEFROST_ON_F
+        # protect_state 2 marks a defrost's start, before the coils swap
+        protect = eq.get("protect_state")
+        by_protect = (bool(eq.get("available")) and heating and isinstance(protect, int)
+                      and not isinstance(protect, bool) and protect == DEFROST_PROTECT_STATE)
+        trigger = "coil" if active else "protect_state"
+        active = active or by_protect
         signals = dict(eq.get("defrost_signals") or {})
         if isinstance(ps := eq.get("protect_state"), int) and not isinstance(ps, bool):
             signals["protect_state"] = ps
         now = dt_util.utcnow()
         if active and not self.defrost:
-            self.defrost_cycle = {"start": now.isoformat(timespec="seconds"), "min_coil_f": coil,
+            self.defrost_cycle = {"start": now.isoformat(timespec="seconds"), "min_coil_f": coil, "trigger": trigger,
                                   "outdoor_f": eq.get("outdoor_temp"), "signals_start": dict(signals),
                                   "signals_seen": {k: v for k, v in signals.items() if v}}
-            self._event("defrost_start", coil_f=coil, outdoor_f=eq.get("outdoor_temp"), signals=dict(signals))
-            _LOGGER.info("Defrost started on %s (indoor coil %s F, outdoor %s F)", self.host, coil,
+            self._event("defrost_start", coil_f=coil, outdoor_f=eq.get("outdoor_temp"), signals=dict(signals),
+                        trigger=trigger)
+            _LOGGER.info("Defrost started on %s (%s; indoor coil %s F, outdoor %s F)", self.host, trigger, coil,
                          eq.get("outdoor_temp"))
         elif active and self.defrost_cycle is not None:
             cyc = self.defrost_cycle
-            cyc["min_coil_f"] = min(cyc["min_coil_f"], coil)
+            if isinstance(coil, (int, float)) and not isinstance(coil, bool):
+                cyc["min_coil_f"] = coil if cyc["min_coil_f"] is None else min(cyc["min_coil_f"], coil)
             for k, v in signals.items():
                 if v:
                     cyc["signals_seen"][k] = max(v, cyc["signals_seen"].get(k, 0))

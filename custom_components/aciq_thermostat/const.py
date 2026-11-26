@@ -135,6 +135,12 @@ DEFROST_END_F = 60.0
 # Without an outdoor coil reading: indoor coil alone (misses the short, mild-weather defrosts)
 DEFROST_ON_F = 40.0
 DEFROST_OFF_F = 55.0
+# The indoor unit's protect_state while a defrost starts: 2 at the start of every defrost on a
+# TL04-1 with a dual-fuel heat pump (2026-11-22..26: 43 defrosts, 44 protection windows, all value 2;
+# the extra window was a defrost during a connection gap). It starts 1-3 min before the coils swap,
+# so it turns Defrost on earlier and catches short reversals the coil rule misses; the coil rule
+# still holds it on until the defrost ends.
+DEFROST_PROTECT_STATE = 2
 
 # Auto setpoint type (dev_app temp_zone_control): one setpoint or a heat/cool range
 AUTO_SETPOINT_SINGLE = "single"

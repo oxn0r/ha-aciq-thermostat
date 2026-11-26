@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+### Changed
+- **Defrost turns on earlier, and catches short reversals.** The indoor unit's protection state is 2 at the
+  start of every defrost (43 of 43 on a dual-fuel TL04-1, Nov 22–26), 1–3 minutes before the coils swap
+  temperatures. While heating with the heat pump, Defrost now turns on as soon as it sees that value, and
+  the coil rule still holds it on until the defrost ends. That also catches short reversals where the indoor
+  coil stays above 50 °F. Other protection values don't count. Diagnostics and the log say what started
+  each defrost (`protect_state` or `coil`).
+
 ## 1.4.1 — 2026-11-22
 ### Fixed
 - **Fault no longer turns on at every defrost.** The indoor unit sets its protection state for a couple of
