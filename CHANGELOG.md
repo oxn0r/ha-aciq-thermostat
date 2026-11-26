@@ -1,13 +1,29 @@
 # Changelog
 
-## Unreleased
+## 1.4.2 — 2026-11-26
 ### Changed
-- **Defrost turns on earlier, and catches short reversals.** The indoor unit's protection state is 2 at the
-  start of every defrost (43 of 43 on a dual-fuel TL04-1, Nov 22–26), 1–3 minutes before the coils swap
-  temperatures. While heating with the heat pump, Defrost now turns on as soon as it sees that value, and
-  the coil rule still holds it on until the defrost ends. That also catches short reversals where the indoor
-  coil stays above 50 °F. Other protection values don't count. Diagnostics and the log say what started
-  each defrost (`protect_state` or `coil`).
+- **Defrost now starts from the indoor unit's own defrost signal.**
+  - **Before (1.4.0–1.4.1):** Defrost turned on only once the indoor coil was at or below 50 °F and at least
+    5 °F colder than the outdoor coil. That happens 1–3 minutes into a defrost, and short defrosts where the
+    indoor coil stays above 50 °F were missed.
+  - **Now:** while heating with the heat pump, Defrost turns on as soon as the indoor unit reports
+    protection state **2**, which it sets as each defrost begins. Once the value clears, the coil rule
+    still holds Defrost on until the coils are back to normal, so the end of a defrost works as before.
+    Without that value (other units, or no equipment data), the coil rule works exactly as it did.
+  - **Only value 2 counts,** and only in Heat (or Auto while heating). Other protection values, and value 2
+    in Cool, Off, Fan or Emergency heat, don't turn Defrost on.
+  - **Why value 2:** on a dual-fuel TL04-1 (Nov 22–26, 14–61 °F outside), the indoor unit reported 2 at the
+    start of all 43 defrosts and at no other time. Based on that testing it looks like the right defrost
+    trigger, but it has only been checked on one system so far.
+  - Diagnostics and the log now say what started each defrost (`protect_state` or `coil`).
+- If Defrost turns on when your system isn't defrosting, or misses a defrost, please
+  [open a bug report](https://github.com/oxn0r/ha-aciq-thermostat/issues/new/choose) with a diagnostics
+  download taken right after. The Protection sensor's attributes show the value your unit reported.
+### Fixed
+- The bundled `thermostat_api.sha256` file now matches the bundled service (it was left over from 1.3.1).
+  Nothing read it, and the service itself is unchanged.
+
+No change to the service on the thermostat: updating does not restart anything there.
 
 ## 1.4.1 — 2026-11-22
 ### Fixed
