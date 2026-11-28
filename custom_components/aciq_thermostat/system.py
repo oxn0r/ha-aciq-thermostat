@@ -38,8 +38,18 @@ SYSTEM_TYPES = [
 ]
 
 
+def _int(v: Any) -> int | None:
+    """An int from the daemon's JSON (not a bool), else None."""
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def _dict(v: Any) -> dict[str, Any]:
+    return v if isinstance(v, dict) else {}
+
+
 def _wired(data: dict[str, Any]) -> set[str]:
-    return set((data.get("v24_outputs") or {}).get("wired") or [])
+    wired = _dict(data.get("v24_outputs")).get("wired")
+    return {t for t in wired if isinstance(t, str)} if isinstance(wired, list) else set()
 
 
 def describe(data: dict[str, Any]) -> dict[str, Any]:
@@ -47,7 +57,7 @@ def describe(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("wiring") == "24v":
         return _describe_24v(data)
     if data.get("comm_mode") == "communicating":
-        aux = (data.get("ui") or {}).get("aux_heat_open")
+        aux = _int(_dict(data.get("ui")).get("aux_heat_open"))
         heat = NONE if aux == 0 else FURNACE if aux == 1 else UNKNOWN
         return _summary("communicating", HEAT_PUMP, heat, heat_stages=None, compressor_stages=None,
                         blower=True, source=f"aux_heat_open={aux if aux in (0, 1) else 'unknown'}")
@@ -61,10 +71,10 @@ def _describe_24v(data: dict[str, Any]) -> dict[str, Any]:
         return _summary("24v", UNKNOWN, UNKNOWN, heat_stages=None, compressor_stages=None, blower=None,
                         source="wiring not reported yet")
     outdoor = HEAT_PUMP if "O/B" in wired else AIR_CONDITIONER if wired & {"Y1", "Y2"} else NONE
-    taux = (data.get("v24") or {}).get("taux")
+    taux = _int(_dict(data.get("v24")).get("taux"))
     if wired & {"W1", "W2"}:
         # no type setting reported: a furnace, the usual W1 equipment
-        heat = AUX_TYPES.get(taux, FURNACE) if isinstance(taux, int) else FURNACE
+        heat = AUX_TYPES.get(taux, FURNACE) if taux is not None else FURNACE
     else:
         heat = NONE
     return _summary(
@@ -72,7 +82,7 @@ def _describe_24v(data: dict[str, Any]) -> dict[str, Any]:
         compressor_stages=(2 if "Y2" in wired else 1) if outdoor != NONE else 0,
         heat_stages=(2 if "W2" in wired else 1) if heat != NONE else 0,
         blower="G" in wired,
-        source=f"wired {', '.join(sorted(wired))}; Taux={taux if isinstance(taux, int) and taux >= 0 else 'unknown'}",
+        source=f"wired {', '.join(sorted(wired))}; Taux={taux if taux is not None and taux >= 0 else 'unknown'}",
     )
 
 

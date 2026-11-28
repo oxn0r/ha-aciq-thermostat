@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from . import AciqConfigEntry
 from .const import CONF_ADDRESS_CHANGE, LOG_TAIL_LINES, VERIFIED_DEV_APP_SHA256, VERIFIED_FIRMWARE
 from .deployer import DeployError, bundled_daemon_sha256
+from .system import describe as describe_system
 
 # users post this download publicly on GitHub issues
 TO_REDACT = {"serial", "host", "allowed_ips", "ip", "old_host", "previous_host", "mac"}
@@ -51,6 +52,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: AciqCon
         "events": list(c.events),
         "commands": list(c.commands),
         "dry_return": c.dry_return,
+        "system": describe_system(c.data or {}),
         "defrost": {"active": c.defrost, "cycle": c.defrost_cycle, "last": c.last_defrost},
         "protection": {"value": c.protect_state, "cycle": c.protection_cycle, "last": c.last_protection,
                        "changes": list(c.protection_log)},

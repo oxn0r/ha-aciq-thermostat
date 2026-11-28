@@ -25,8 +25,9 @@ to put a tiny local API on the thermostat, then talks to it directly. No cloud, 
 
 **What you get in Home Assistant:**
 - 🌡️ A normal thermostat card: Off / Auto / Heat / Cool / Fan / Dry, emergency heat, fan speed, setpoint
-- 🔥 **Is the gas furnace burning? Is the heat pump running, and how hard?** (compressor Hz)
+- 🔥 **Is the furnace burning? Is the heat pump running, and how hard?** (compressor Hz)
 - 🌤️ **Outdoor temperature** from the outdoor unit, plus coil temperatures, blower state and fault codes
+- 🏠 **An animated system card that draws your own equipment**: heat pump or AC, furnace, air handler, heat strips or boiler ([see every system](#system-card))
 - Works with HomeKit, automations, dashboards, energy tracking
 
 **Is this for me?** Yes, if your thermostat says **TL04-1** on the box or in the ACiQ app (also sold as Carrier

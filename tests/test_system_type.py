@@ -6,6 +6,8 @@ import pytest
 
 from custom_components.aciq_thermostat.system import SYSTEM_TYPES, describe
 
+TERMINALS = ["O/B", "G", "W2", "W1", "Y2", "Y1", "C", "RC"]
+
 
 def _comm(aux):
     return {"comm_mode": "communicating", "ui": {"aux_heat_open": aux}}
@@ -56,3 +58,53 @@ def test_communicating_detail() -> None:
     assert d["wiring"] == "communicating" and d["blower"] is True
     assert d["detected_from"] == "aux_heat_open=0"
     assert d["compressor_stages"] is None
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"comm_mode": "communicating", "ui": None},
+        {"comm_mode": "communicating", "ui": "x"},
+        {"comm_mode": "communicating", "ui": {"aux_heat_open": True}},      # a bool is not the setting
+        {"comm_mode": "communicating", "ui": {"aux_heat_open": "1"}},
+        {"comm_mode": "communicating", "ui": {"aux_heat_open": 7}},
+        {"wiring": "24v", "v24": None, "v24_outputs": None},
+        {"wiring": "24v", "v24": {"taux": True}, "v24_outputs": {"wired": ["W1", 5, None]}},
+        {"wiring": "24v", "v24": {"taux": "3"}, "v24_outputs": {"wired": "W1,G"}},
+        {"wiring": "24v", "v24": {"taux": 9}, "v24_outputs": {"wired": ["W1"]}},
+    ],
+)
+def test_odd_input_never_raises_or_guesses(data) -> None:
+    d = describe(data)
+    assert d["system"] in SYSTEM_TYPES
+    assert d["heat_source"] in ("furnace", "unknown", "none")       # malformed type settings: no electric/boiler
+
+
+def test_every_wiring_maps_to_a_known_system() -> None:
+    """All 256 terminal combinations x every Taux value: always a listed state, consistent parts."""
+    for mask in range(1 << len(TERMINALS)):
+        wired = [t for i, t in enumerate(TERMINALS) if mask >> i & 1]
+        for taux in (-1, 0, 1, 2, 3, 4, None):
+            d = describe(_v24(wired, taux))
+            assert d["system"] in SYSTEM_TYPES, (wired, taux)
+            if not wired:
+                continue
+            has_out = d["outdoor_unit"] != "none"
+            assert has_out == bool({"O/B", "Y1", "Y2"} & set(wired))
+            assert (d["heat_source"] != "none") == bool({"W1", "W2"} & set(wired))
+            assert d["blower"] == ("G" in wired)
+            if d["heat_source"] == "furnace":
+                assert d["indoor_unit"] == "furnace"
+            assert d["system"] != "unknown" or (not has_out and d["heat_source"] == "none")
+
+
+def test_translations_cover_every_state_and_attribute() -> None:
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "custom_components" / "aciq_thermostat"
+    for f in (root / "strings.json", root / "translations" / "en.json"):
+        t = json.loads(f.read_text())["entity"]["sensor"]["system_type"]
+        assert set(t["state"]) == set(SYSTEM_TYPES)
+        sample = describe(_v24(["O/B", "G", "W1", "Y1"], 3))
+        assert set(t["state_attributes"]) == set(sample) - {"system"}

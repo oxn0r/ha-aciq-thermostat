@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-11-28
 ### Added
 - **The system card draws your own equipment.** It used to show every system as a heat pump with a gas
   furnace. Now it draws what the thermostat reports: a heat pump or air conditioner outdoors, and indoors
@@ -13,6 +13,7 @@
 - Card options `heat_source` and `outdoor_unit` (also in the editor), for systems the thermostat can't tell
   apart, such as a communicating air handler with electric heat strips.
 - The card now works on conventional 24 V systems, from the compressor, stage 2, aux heat and fan calls.
+- Diagnostics include the detected system and the signals it came from.
 
 ### Changed
 - The card says *furnace* instead of *gas furnace*, since the thermostat doesn't report the fuel.
