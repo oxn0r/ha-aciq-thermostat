@@ -16,3 +16,14 @@ Regenerates the README / release images of the ACiQ System Card (`docs/images/`)
 
 The demo states use 54 Hz and blower stage 4 so each 3 s GIF loops cleanly (fan, refrigerant and blower all
 complete whole cycles).
+
+## Every system type (README gallery)
+
+`gallery.html` shows every system type the card draws, in each state it can show (`?theme=dark`, `?only=<key>`,
+`?fixed` for the capture layout). Open `gallery.html?fixed` (then `?fixed&theme=dark`) and run:
+```js
+let i = 0;
+for (const [sys, k, c] of cards) await captureAll(`g_${"light"}__${String(i++).padStart(2, "0")}_${sys}__${k}`, c, 10, 3, 1);
+```
+(with `"dark"` on the dark page), then `python3 make_gallery.py frames ../../docs/images/systems`: one looping GIF per
+system with all its states, light and dark.

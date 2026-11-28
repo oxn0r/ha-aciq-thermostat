@@ -223,6 +223,72 @@
             "name": "Ends at"
           }
         }
+      },
+      "system_type": {
+        "name": "System type",
+        "state": {
+          "heat_pump": "Heat pump",
+          "heat_pump_furnace": "Heat pump + furnace (dual fuel)",
+          "heat_pump_electric": "Heat pump + electric heat",
+          "heat_pump_boiler": "Heat pump + boiler",
+          "air_conditioner": "Air conditioner",
+          "air_conditioner_furnace": "Air conditioner + furnace",
+          "air_conditioner_electric": "Air conditioner + electric heat",
+          "air_conditioner_boiler": "Air conditioner + boiler",
+          "furnace": "Furnace",
+          "electric": "Electric heat",
+          "boiler": "Boiler",
+          "unknown": "Unknown"
+        },
+        "state_attributes": {
+          "wiring": {
+            "name": "Wiring",
+            "state": {
+              "communicating": "Communicating",
+              "24v": "24 V"
+            }
+          },
+          "outdoor_unit": {
+            "name": "Outdoor unit",
+            "state": {
+              "heat_pump": "Heat pump",
+              "air_conditioner": "Air conditioner",
+              "none": "None",
+              "unknown": "Unknown"
+            }
+          },
+          "heat_source": {
+            "name": "Heat source",
+            "state": {
+              "furnace": "Furnace",
+              "electric": "Electric heat",
+              "boiler": "Boiler",
+              "none": "None",
+              "unknown": "Unknown"
+            }
+          },
+          "indoor_unit": {
+            "name": "Indoor unit",
+            "state": {
+              "furnace": "Furnace",
+              "air_handler": "Air handler",
+              "none": "None",
+              "unknown": "Unknown"
+            }
+          },
+          "compressor_stages": {
+            "name": "Compressor stages"
+          },
+          "heat_stages": {
+            "name": "Heat stages"
+          },
+          "blower": {
+            "name": "Blower"
+          },
+          "detected_from": {
+            "name": "Detected from"
+          }
+        }
       }
     },
     "binary_sensor": {

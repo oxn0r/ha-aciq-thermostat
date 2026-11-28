@@ -115,6 +115,9 @@
       },
       "dry_time_left": {
         "default": "mdi:timer-sand"
+      },
+      "system_type": {
+        "default": "mdi:hvac"
       }
     },
     "binary_sensor": {

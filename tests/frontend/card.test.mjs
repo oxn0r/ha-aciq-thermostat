@@ -140,7 +140,7 @@ for (const [name, st] of Object.entries(STATES)) {
     const html = c.shadowRoot.innerHTML;
     const head = html.match(/<span class="head">([^<]*)<\/span>/)[1];
     assert.equal(head, { heat: "Heating · heat pump 58 Hz", cool: "Cooling · heat pump 47 Hz",
-      furnace: "Heating · gas furnace", idle: "Idle", dry: "Drying · heat pump 40 Hz · 23 min left",
+      furnace: "Heating · furnace", idle: "Idle", dry: "Drying · heat pump 40 Hz · 23 min left",
       defrost: "Defrosting · heat pump 80 Hz", defrost_pause: "Defrosting" }[name]);
     const defrost = name.startsWith("defrost");                  // outdoor fan stops in a defrost
     assert.equal(/class="spin" style="transform-origin:56px 134px/.test(html), !!st.comp && !defrost);
@@ -148,8 +148,8 @@ for (const [name, st] of Object.entries(STATES)) {
     assert.equal(html.includes('class="flame"'), !!st.furn);
     const cooling = name === "cool" || name === "dry" || defrost;  // Dry and defrost run it reversed
     if (st.comp) {
-      assert.ok(html.includes(`class="flow ${cooling ? "runrev" : "run"}" d="M104 150 H170"`));
-      assert.ok(html.includes(`stroke="${cooling ? "#2b8cff" : "#ff6b3d"}" d="M104 150 H170"`));
+      assert.ok(html.includes(`class="flow ${cooling ? "runrev" : "run"}" d="M104 108 H170"`));      // into the coil on the furnace
+      assert.ok(html.includes(`stroke="${cooling ? "#2b8cff" : "#ff6b3d"}" d="M104 108 H170"`));
     }
     assert.equal(html.includes('class="drip"'), name === "dry");
     assert.equal(html.includes("Dry · 23 min left"), name === "dry");
@@ -171,10 +171,14 @@ test("editor maps the form to the card config", () => {
   const ed = new (customElements.get("aciq-system-card-editor"))();
   ed.setConfig({ type: "custom:aciq-system-card", prefix: "family_room", entities: { filter: "sensor.f" } });
   ed.hass = { entities: {}, states: {} };
-  assert.deepEqual(ed._form.data, { device_id: undefined, title: undefined, power: undefined, filter: "sensor.f" });
-  ed._changed({ device_id: "dev1", title: "HVAC", power: "sensor.p", filter: "" });
+  assert.deepEqual(ed._form.data, { device_id: undefined, title: undefined, outdoor_unit: "auto", heat_source: "auto",
+    power: undefined, filter: "sensor.f" });
+  ed._changed({ device_id: "dev1", title: "HVAC", outdoor_unit: "auto", heat_source: "auto", power: "sensor.p", filter: "" });
   assert.deepEqual(ed.events.at(-1).detail.config,
     { type: "custom:aciq-system-card", device_id: "dev1", title: "HVAC", entities: { power: "sensor.p" } });
+  ed._changed({ device_id: "dev1", outdoor_unit: "heat_pump", heat_source: "electric" });
+  assert.deepEqual(ed.events.at(-1).detail.config,
+    { type: "custom:aciq-system-card", device_id: "dev1", outdoor_unit: "heat_pump", heat_source: "electric" });
 });
 
 test("animations loop seamlessly and keep their phase across re-renders", () => {
@@ -190,4 +194,130 @@ test("animations loop seamlessly and keep their phase across re-renders", () => 
   c.shadowRoot.getAnimations = () => anims;
   c._render();
   assert.deepEqual(anims.map((a) => a.startTime), [0, null]);
+});
+
+// ---- equipment-aware layouts ----
+// Communicating units (System type sensor + equipment entities), or 24 V (System type + output calls)
+function equip(sysAttrs, st, { v24 = false } = {}) {
+  const sys = system("family_room");
+  const add = (id, tk) => { sys.entities[id] = { entity_id: id, device_id: "dev1", platform: "aciq_thermostat", translation_key: tk }; sys.ids.push(id); };
+  add("sensor.family_room_system_type", "system_type");
+  const hass = hassFor(sys, st);
+  const s = (state, attributes = {}) => ({ state: String(state), attributes });
+  hass.states["sensor.family_room_system_type"] = s(sysAttrs.system ?? "x", { wiring: v24 ? "24v" : "communicating", blower: true, ...sysAttrs });
+  if (v24) {
+    // 24 V units have no equipment-memory entities
+    for (const k of ["compressor", "furnace", "blower", "fault", "fault_codes", "compressor_frequency", "blower_stage",
+      "outdoor_temperature", "outdoor_coil_temperature", "indoor_coil_temperature", "indoor_unit_t1_temperature"]) {
+      const id = sys.ids.find((i) => i.endsWith(`_${k}`));
+      delete sys.entities[id]; delete hass.states[id];
+    }
+    for (const [k, tk] of [["compressor_call", "compressor_call"], ["compressor_stage_2_call", "compressor_stage_2"],
+      ["aux_heat_call", "aux_heat_call"], ["fan_call", "fan_call"]]) {
+      add(`binary_sensor.family_room_${k}`, tk);
+      hass.states[`binary_sensor.family_room_${k}`] = s(st[tk] ? "on" : "off");
+    }
+  }
+  return card({}, hass).shadowRoot.innerHTML;
+}
+const head = (html) => html.match(/<span class="head">([^<]*)<\/span>/)[1];
+const sysChip = (html) => html.match(/<span class="chip sys hit" data-k="system_type">([^<]*)<\/span>/)?.[1];
+const parts = (html) => ({
+  outdoor: html.includes('transform-origin:56px 134px'), furnace: html.includes(">Furnace"),
+  strips: html.includes("<polyline"), water: html.includes("M176 "), boiler: html.includes(">Boiler"),
+  radiator: html.includes('x="300" y="170"'), ducts: html.includes('class="duct"'),
+  blower: html.includes('transform-origin:205px'),
+});
+
+test("communicating heat pump with no backup heat (#8, #13, #16): air handler, no furnace", () => {
+  const html = equip({ system: "heat_pump", outdoor_unit: "heat_pump", heat_source: "none" }, STATES.heat);
+  assert.deepEqual(parts(html), { outdoor: true, furnace: false, strips: false, water: false, boiler: false,
+    radiator: false, ducts: true, blower: true });
+  assert.equal(sysChip(html), "Heat pump");
+  assert.equal(head(html), "Heating · heat pump 58 Hz");
+  assert.ok(html.includes('d="M104 158 H170"'));                // refrigerant into the air handler's coil
+});
+
+test("dual fuel (the author's ACiQ): coil on a furnace", () => {
+  const html = equip({ system: "heat_pump_furnace", outdoor_unit: "heat_pump", heat_source: "furnace" }, STATES.furnace);
+  assert.equal(sysChip(html), "Heat pump + furnace");
+  assert.equal(head(html), "Heating · furnace");
+  assert.ok(parts(html).furnace && html.includes('class="flame"'));
+});
+
+test("electric heat strips set on the card: strips glow with the backup call", () => {
+  const sys = system("family_room");
+  const hass = hassFor(sys, { ...STATES.heat, furn: true });
+  const html = card({ heat_source: "electric" }, hass).shadowRoot.innerHTML;
+  assert.equal(head(html), "Heating · heat pump 58 Hz + electric heat");
+  assert.ok(parts(html).strips && !parts(html).furnace && html.includes('class="glow"'));
+  assert.equal(sysChip(html), "Heat pump + electric heat");
+});
+
+test("24 V two-stage heat pump with a hydronic boiler (#5)", () => {
+  const sysAttrs = { system: "heat_pump_boiler", outdoor_unit: "heat_pump", heat_source: "boiler", compressor_stages: 2 };
+  let html = equip(sysAttrs, { mode: "heat", action: "heating", compressor_call: true, compressor_stage_2: true }, { v24: true });
+  assert.equal(head(html), "Heating · heat pump stage 2");
+  assert.ok(html.includes(">Stage 2<"));
+  assert.ok(parts(html).water && parts(html).boiler && parts(html).blower);
+  assert.ok(!html.includes("Outdoor"));                            // no outdoor sensors on 24 V
+  html = equip(sysAttrs, { mode: "heat", action: "heating", aux_heat_call: true }, { v24: true });
+  assert.equal(head(html), "Heating · boiler");
+  assert.ok(html.includes('class="flame"') && html.includes('class="flow run" style="stroke-width:2"'));
+  assert.ok(/class="spin" style="transform-origin:205px/.test(html));     // the air handler blows the hot-water coil's heat
+});
+
+test("24 V air conditioner + furnace, and air conditioner only", () => {
+  let html = equip({ system: "air_conditioner_furnace", outdoor_unit: "air_conditioner", heat_source: "furnace" },
+    { mode: "cool", action: "cooling", compressor_call: true }, { v24: true });
+  assert.equal(head(html), "Cooling · AC stage 1");
+  assert.ok(html.includes(">Air conditioner<") && parts(html).furnace);
+  html = equip({ system: "air_conditioner", outdoor_unit: "air_conditioner", heat_source: "none" },
+    { mode: "cool", action: "idle" }, { v24: true });
+  assert.equal(head(html), "Idle");
+  assert.ok(!parts(html).furnace && parts(html).outdoor);
+  // an air conditioner never runs its lines red
+  html = equip({ system: "air_conditioner", outdoor_unit: "air_conditioner", heat_source: "none" },
+    { mode: "heat", action: "idle", compressor_call: true }, { v24: true });
+  assert.ok(!html.includes("#ff6b3d"));
+});
+
+test("24 V furnace only, electric only, boiler with radiators", () => {
+  let html = equip({ system: "furnace", outdoor_unit: "none", heat_source: "furnace" },
+    { mode: "heat", action: "heating", aux_heat_call: true }, { v24: true });
+  assert.deepEqual(parts(html), { outdoor: false, furnace: true, strips: false, water: false, boiler: false,
+    radiator: false, ducts: true, blower: true });
+  assert.equal(head(html), "Heating · furnace");
+  html = equip({ system: "electric", outdoor_unit: "none", heat_source: "electric" },
+    { mode: "heat", action: "heating", aux_heat_call: true }, { v24: true });
+  assert.ok(parts(html).strips && html.includes(">Strips on<"));
+  html = equip({ system: "boiler", outdoor_unit: "none", heat_source: "boiler", blower: false },
+    { mode: "heat", action: "heating", aux_heat_call: true }, { v24: true });
+  assert.deepEqual(parts(html), { outdoor: false, furnace: false, strips: false, water: false, boiler: true,
+    radiator: true, ducts: false, blower: false });
+  assert.equal(head(html), "Heating · boiler");
+});
+
+test("emergency heat and an unknown system type", () => {
+  const html = equip({ system: "heat_pump_furnace", outdoor_unit: "heat_pump", heat_source: "furnace" },
+    { ...STATES.furnace, mode: "emergency_heat" });
+  assert.equal(head(html), "Emergency heat · furnace");
+  // not reported yet: a communicating heat pump, backup heat drawn only while it runs
+  const idle = equip({ system: "unknown", outdoor_unit: "heat_pump", heat_source: "unknown" }, STATES.idle);
+  assert.ok(!parts(idle).furnace && parts(idle).outdoor);
+});
+
+test("a raw blower speed instead of a stage", () => {
+  const html = equip({ system: "heat_pump", outdoor_unit: "heat_pump", heat_source: "none" }, { ...STATES.heat, stage: 118 });
+  assert.ok(html.includes(">Blower 118<"));
+  assert.ok(html.includes("animation-duration:0.75s"));
+});
+
+test("every animation period divides the 3 s media loop", () => {
+  const src = readFileSync(new URL("../../custom_components/aciq_thermostat/frontend/aciq-system-card.js", import.meta.url), "utf8");
+  // alternate animations take two runs a cycle; the dashes repeat every half run (2 dash periods a run)
+  for (const [cls, runs] of [["glow", 2], ["flame", 2], ["drip", 1], ["run", 0.5]]) {
+    const d = parseFloat(src.match(new RegExp(`\\.${cls} \\{[^}]*animation: \\w+ ([.\\d]+)s`))[1]);
+    assert.equal(Math.round((3 / (d * runs)) * 1000) % 1000, 0, cls);
+  }
 });

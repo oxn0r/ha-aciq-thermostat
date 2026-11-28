@@ -1,0 +1,137 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>System card gallery</title>
+<style>
+ body{margin:0;font-family:Roboto,system-ui,-apple-system,sans-serif;background:var(--bg)}
+ .light{--bg:#fafafa;--primary-text-color:#212121;--secondary-text-color:#727272;--secondary-background-color:#e9e9ec;--divider-color:#c8c8cc;--primary-color:#03a9f4;--card-background-color:#fff;--disabled-text-color:#bdbdbd}
+ .dark{--bg:#111;--primary-text-color:#e1e1e1;--secondary-text-color:#9b9b9b;--secondary-background-color:#282828;--divider-color:#474747;--primary-color:#03a9f4;--card-background-color:#1c1c1c;--disabled-text-color:#6f6f6f}
+ .page{padding:16px;background:var(--bg);color:var(--primary-text-color)}
+ section{margin-bottom:28px}
+ h2{font-size:16px;margin:0 0 2px}
+ p{font-size:12px;color:var(--secondary-text-color);margin:0 0 10px}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:12px}
+ .grid.fixed{grid-template-columns:repeat(2,440px)}
+ ha-card{display:block;background:var(--card-background-color);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+</style></head><body>
+<div class="page" id="page"></div>
+<script>customElements.define("ha-card", class extends HTMLElement {});</script>
+<script src="aciq-system-card.js"></script><script src="capture.js"></script>
+<script>
+// Every system type the card draws, in the states it can show. Made-up readings; the demo speeds
+// (54 Hz, blower stage 4, 24 V stages) make each 3 s GIF loop cleanly.
+const q = new URLSearchParams(location.search);
+const theme = q.get("theme") || "light";
+document.getElementById("page").className = `page ${theme}${q.has("fixed") ? " fixedgrid" : ""}`;
+const n = "family_room";
+const COMM = { mode: "heat", out: 38, ocoil: 30, coil: 72, hz: 0, stage: 0 };
+const S = (state, attributes = {}) => ({ state: String(state), attributes });
+
+function hass(sys, st) {
+  const v24 = sys.wiring === "24v";
+  const tk = { [`climate.${n}`]: "thermostat", [`sensor.${n}_temperature`]: "temperature", [`sensor.${n}_humidity`]: "humidity",
+    [`sensor.${n}_setpoint`]: "setpoint", [`sensor.${n}_mode`]: "mode", [`sensor.${n}_system_type`]: "system_type" };
+  const states = {
+    [`climate.${n}`]: S(st.mode, { hvac_action: st.action }), [`sensor.${n}_temperature`]: S(st.room ?? 70.4),
+    [`sensor.${n}_humidity`]: S(st.rh ?? 41), [`sensor.${n}_setpoint`]: S(st.sp ?? 70), [`sensor.${n}_mode`]: S(st.mode),
+    [`sensor.${n}_system_type`]: S(sys.system, sys),
+  };
+  if (st.filter !== undefined) states["sensor.filter_used"] = S(st.filter);
+  if (st.power !== undefined) states["sensor.hvac_power"] = S(st.power);
+  if (v24) {
+    for (const [s, t] of [["compressor_call", "compressor_call"], ["compressor_stage_2_call", "compressor_stage_2"],
+      ["aux_heat_call", "aux_heat_call"], ["fan_call", "fan_call"]]) {
+      tk[`binary_sensor.${n}_${s}`] = t; states[`binary_sensor.${n}_${s}`] = S(st[t] ? "on" : "off");
+    }
+  } else {
+    const e = { ...COMM, ...st };
+    for (const [s, t, v] of [["outdoor_temperature", "outdoor_temperature", e.out], ["outdoor_coil_temperature", "outdoor_coil_temperature", e.ocoil],
+      ["indoor_coil_temperature", "indoor_coil_temperature", e.coil], ["indoor_unit_t1_temperature", "indoor_unit_t1", 69],
+      ["compressor_frequency", "compressor_frequency", e.hz], ["blower_stage", "blower_stage", e.stage],
+      ["fault_codes", "fault_codes", "none"], ["dry_time_left", "dry_time_left", e.left ?? 0]]) {
+      tk[`sensor.${n}_${s}`] = t; states[`sensor.${n}_${s}`] = S(v);
+    }
+    for (const [s, v] of [["compressor", e.comp], ["furnace", e.furn], ["blower", e.blow], ["fault", false]]) {
+      tk[`binary_sensor.${n}_${s}`] = s; states[`binary_sensor.${n}_${s}`] = S(v ? "on" : "off");
+    }
+  }
+  const entities = {};
+  for (const [id, t] of Object.entries(tk)) entities[id] = { entity_id: id, device_id: "dev1", platform: "aciq_thermostat", translation_key: t };
+  return { entities, states };
+}
+
+const sysA = (system, outdoor, heat, extra = {}) => ({ system, outdoor_unit: outdoor, heat_source: heat, indoor_unit: heat === "furnace" ? "furnace" : "air_handler", blower: true, ...extra });
+const comm = (system, outdoor, heat) => sysA(system, outdoor, heat, { wiring: "communicating" });
+const v24 = (system, outdoor, heat, extra) => sysA(system, outdoor, heat, { wiring: "24v", ...extra });
+
+// communicating states
+const C = {
+  heat: { mode: "heat", action: "heating", comp: true, blow: true, hz: 54, stage: 4, coil: 98, power: 2140 },
+  cool: { mode: "cool", action: "cooling", comp: true, blow: true, hz: 54, stage: 4, coil: 46, out: 88, ocoil: 101, sp: 72, room: 73.6, power: 1650 },
+  defrost: { mode: "heat", action: "defrosting", comp: true, hz: 54, coil: 12, out: 24, ocoil: 58 },
+  dry: { mode: "dry", action: "drying", comp: true, blow: true, hz: 54, stage: 4, coil: 45, out: 91, ocoil: 104, sp: 74, room: 74.2, left: 23 },
+  fan: { mode: "fan_only", action: "fan", blow: true, stage: 4 },
+  idle: { mode: "heat", action: "idle", coil: 69, out: 45, ocoil: 44 },
+  off: { mode: "off", action: "off", coil: 68, out: 45, ocoil: 44 },
+};
+// 24 V states (outputs the thermostat drives)
+const V = {
+  heat1: { mode: "heat", action: "heating", compressor_call: true, fan_call: true },
+  heat2: { mode: "heat", action: "heating", compressor_call: true, compressor_stage_2: true, fan_call: true },
+  cool1: { mode: "cool", action: "cooling", compressor_call: true, fan_call: true, sp: 72, room: 73.6 },
+  cool2: { mode: "cool", action: "cooling", compressor_call: true, compressor_stage_2: true, fan_call: true, sp: 72, room: 74.8 },
+  aux: { mode: "heat", action: "heating", aux_heat_call: true },
+  hpaux: { mode: "heat", action: "heating", compressor_call: true, aux_heat_call: true, fan_call: true },
+  emer: { mode: "emergency_heat", action: "heating", aux_heat_call: true },
+  fan: { mode: "fan_only", action: "fan", fan_call: true },
+  idle: { mode: "heat", action: "idle" },
+  off: { mode: "off", action: "off" },
+};
+
+window.SYSTEMS = [
+  { key: "hp_furnace", name: "Heat pump + furnace (dual fuel), communicating", note: "aux_heat_open 1: the author's ACiQ with a gas furnace", sys: comm("heat_pump_furnace", "heat_pump", "furnace"),
+    states: { heat: C.heat, furnace: { mode: "heat", action: "heating", furn: true, blow: true, stage: 4, coil: 70, out: 18, ocoil: 15 },
+      emergency: { mode: "emergency_heat", action: "heating", furn: true, blow: true, stage: 4, coil: 96, out: 8, ocoil: 6 },
+      defrost: C.defrost, cool: C.cool, dry: C.dry, fan: C.fan, idle: C.idle } },
+  { key: "hp", name: "Heat pump + air handler, communicating", note: "aux_heat_open 0: Midea EVOX G3 (#8), Midea (#13), MrCool (#16)", sys: comm("heat_pump", "heat_pump", "none"),
+    states: { heat: C.heat, defrost: C.defrost, cool: C.cool, dry: C.dry, fan: C.fan, off: C.off } },
+  { key: "hp_electric", name: "Heat pump + electric heat strips", note: "card setting heat_source: electric (communicating), or Taux 1 on 24 V", sys: comm("heat_pump_electric", "heat_pump", "electric"),
+    states: { heat: C.heat, heat_strips: { ...C.heat, furn: true }, emergency: { mode: "emergency_heat", action: "heating", furn: true, blow: true, stage: 4, coil: 104, out: 4, ocoil: 2 },
+      defrost_strips: { ...C.defrost, furn: true, blow: true, stage: 2 }, cool: C.cool, idle: C.idle } },
+  { key: "hp_boiler", name: "Heat pump + boiler (hydro-air), 24 V two-stage", note: "wired O/B, G, W1, Y1, Y2, Taux 3: issue #5", sys: v24("heat_pump_boiler", "heat_pump", "boiler", { compressor_stages: 2, heat_stages: 1 }),
+    states: { heat1: V.heat1, heat2: V.heat2, boiler: V.aux, emergency: V.emer, cool2: V.cool2, idle: V.idle } },
+  { key: "hp_24v", name: "Heat pump + air handler, 24 V", note: "wired O/B, G, Y1", sys: v24("heat_pump", "heat_pump", "none", { compressor_stages: 1, heat_stages: 0 }),
+    states: { heat1: V.heat1, cool1: V.cool1, fan: V.fan, off: V.off } },
+  { key: "hp_furnace_24v", name: "Heat pump + furnace (dual fuel), 24 V", note: "wired O/B, G, W1, Y1, Taux 2", sys: v24("heat_pump_furnace", "heat_pump", "furnace", { compressor_stages: 1, heat_stages: 1 }),
+    states: { heat1: V.heat1, furnace: V.aux, cool1: V.cool1, idle: V.idle } },
+  { key: "ac_furnace", name: "Air conditioner + furnace, 24 V", note: "wired G, W1, Y1 (no O/B)", sys: v24("air_conditioner_furnace", "air_conditioner", "furnace", { compressor_stages: 1, heat_stages: 1 }),
+    states: { cool1: V.cool1, furnace: V.aux, fan: V.fan, idle: V.idle } },
+  { key: "ac_electric", name: "Air conditioner + electric heat, 24 V", note: "wired G, W1, Y1, Taux 1", sys: v24("air_conditioner_electric", "air_conditioner", "electric", { compressor_stages: 1, heat_stages: 1 }),
+    states: { cool1: V.cool1, electric: { ...V.aux, fan_call: true }, idle: V.idle } },
+  { key: "ac_boiler", name: "Air conditioner + boiler (hydro-air), 24 V", note: "wired G, W1, Y1, Taux 3", sys: v24("air_conditioner_boiler", "air_conditioner", "boiler", { compressor_stages: 1, heat_stages: 1 }),
+    states: { cool1: V.cool1, boiler: V.aux, idle: V.idle } },
+  { key: "ac", name: "Air conditioner only, 24 V", note: "wired G, Y1, Y2", sys: v24("air_conditioner", "air_conditioner", "none", { compressor_stages: 2, heat_stages: 0 }),
+    states: { cool1: V.cool1, cool2: V.cool2, fan: V.fan, off: V.off } },
+  { key: "furnace", name: "Furnace only, 24 V", note: "wired G, W1, W2 (no Y)", sys: v24("furnace", "none", "furnace", { compressor_stages: 0, heat_stages: 2 }),
+    states: { heat: V.aux, fan: V.fan, idle: V.idle } },
+  { key: "electric", name: "Electric heat only, 24 V", note: "wired G, W1, Taux 1", sys: v24("electric", "none", "electric", { compressor_stages: 0, heat_stages: 1 }),
+    states: { heat: { ...V.aux, fan_call: true }, fan: V.fan, idle: V.idle } },
+  { key: "boiler", name: "Boiler with radiators, 24 V", note: "wired W1 only (no G), Taux 3", sys: v24("boiler", "none", "boiler", { compressor_stages: 0, heat_stages: 1, blower: false, indoor_unit: "none" }),
+    states: { heat: V.aux, idle: V.idle } },
+];
+
+window.cards = [];
+const only = q.get("only");
+for (const s of SYSTEMS) {
+  if (only && s.key !== only) continue;
+  const sec = document.createElement("section");
+  sec.innerHTML = `<h2>${s.name}</h2><p>${s.note}</p><div class="grid${q.has("fixed") ? " fixed" : ""}"></div>`;
+  document.getElementById("page").appendChild(sec);
+  for (const [k, st] of Object.entries(s.states)) {
+    const c = document.createElement("aciq-system-card");
+    const entities = { filter: st.filter !== undefined ? "sensor.filter_used" : null, power: st.power !== undefined ? "sensor.hvac_power" : null };
+    c.setConfig({ title: "HVAC system", entities });
+    c.hass = hass(s.sys, st);
+    sec.querySelector(".grid").appendChild(c);
+    cards.push([s.key, k, c]);
+  }
+}
+</script></body></html>

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+### Added
+- **The system card draws your own equipment.** It used to show every system as a heat pump with a gas
+  furnace. Now it draws what the thermostat reports: a heat pump or air conditioner outdoors, and indoors
+  a coil on a furnace, an air handler (with or without electric heat strips or a boiler's hot-water coil),
+  or a boiler heating radiators. Heat strips glow, hot water flows, and two-stage 24 V systems show their
+  stage. Thirteen system types are covered, each with every state it can show in the README.
+- **System type** sensor (diagnostic): the equipment detected from the thermostat's own settings. On
+  communicating systems that is the backup heat setting. On 24 V systems it is the wired terminals and
+  the aux heat type. See [docs/SYSTEM-TYPES.md](docs/SYSTEM-TYPES.md).
+- Card options `heat_source` and `outdoor_unit` (also in the editor), for systems the thermostat can't tell
+  apart, such as a communicating air handler with electric heat strips.
+- The card now works on conventional 24 V systems, from the compressor, stage 2, aux heat and fan calls.
+
+### Changed
+- The card says *furnace* instead of *gas furnace*, since the thermostat doesn't report the fuel.
+- The refrigerant lines run into the indoor coil.
+- Indoor units that report a raw blower speed (e.g. 118) instead of a stage show *Blower 118* with a
+  medium blower spin.
+
 ## 1.4.2 — 2026-11-26
 ### Changed
 - **Defrost now starts from the indoor unit's own defrost signal.**

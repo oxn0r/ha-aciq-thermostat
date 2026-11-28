@@ -152,6 +152,7 @@ You'll then see the pre-flight results. Submitting deploys the daemon.
 | Compressor · Blower | binary_sensor | running |
 | **Defrost** | binary_sensor | heat pump defrosting: on while heating with the heat pump when it runs reversed to melt the outdoor coil's ice, seen as the indoor unit's protection state 2 as the defrost starts, or the indoor coil turning colder than the outdoor coil (at or below 50 °F); off when the indoor coil is back to 60 °F. The thermostat card shows *Defrosting*. Attributes: last defrost's start, end, length and lowest coil temperature ([#9](https://github.com/oxn0r/ha-aciq-thermostat/issues/9)) |
 | Fault · Fault codes | binary_sensor / sensor | equipment fault: a fault code or the indoor unit's fault state. Attributes: `fault_codes`, `fault_state`, `protect_state` |
+| System type *(diagnostic)* | sensor | the equipment the thermostat runs, e.g. *Heat pump + furnace*, *Air conditioner*, *Boiler*; the system card draws from it. Attributes: outdoor unit, heat source, indoor unit, stages, blower, and the signals used ([System types](docs/SYSTEM-TYPES.md)) |
 | Protection *(diagnostic)* | binary_sensor | the indoor unit reports a protection state. This is normal around a defrost and in limit states, and isn't counted as a fault. Attributes: raw value; last protection's value, start, end and length |
 | Power · Emergency heat | binary_sensor | |
 | Redeploy daemon · Collect debug report | button | maintenance; *Collect debug report* runs pre-flight plus the build details below and adds them to the next diagnostics download (takes ~10 s; the page shows no pop-up) |
@@ -216,7 +217,7 @@ Equipment entities go **unavailable** if that data can't be read (for example, o
 
 ## System card
 
-The integration includes the **ACiQ System Card**, an animated schematic of a ducted heat pump system with gas furnace backup: outdoor unit, refrigerant lines, indoor coil on the furnace, blower, ducts and the house.
+The integration includes the **ACiQ System Card**, an animated schematic of *your* equipment, drawn from what the thermostat reports: a heat pump or air conditioner outdoors, and indoors a coil on a furnace, or an air handler with or without electric heat strips or a hot-water coil from a boiler, or a boiler heating radiators. How each system is recognised: [System types](docs/SYSTEM-TYPES.md).
 
 ![ACiQ System Card: heat pump heating, cooling, gas furnace and idle](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/system-card-all.gif)
 
@@ -232,11 +233,160 @@ The integration includes the **ACiQ System Card**, an animated schematic of a du
 
 </details>
 
+<details><summary><b>Every system the card draws, in every state it shows</b> (light and dark)</summary>
+
+#### Heat pump + furnace (dual fuel)
+Heat pump, furnace, emergency heat, defrost, cool, dry, fan, idle.
+
+![Heat pump + furnace (dual fuel)](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-furnace.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + furnace (dual fuel), dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-furnace-dark.gif)
+
+</details>
+
+#### Heat pump + air handler
+Heat, defrost, cool, dry, fan, off.
+
+![Heat pump + air handler](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + air handler, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-dark.gif)
+
+</details>
+
+#### Heat pump + electric heat strips
+Heat pump, heat pump + strips, emergency heat, defrost with strips, cool, idle.
+
+![Heat pump + electric heat strips](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-electric.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + electric heat strips, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-electric-dark.gif)
+
+</details>
+
+#### Heat pump + boiler (hydro-air), 24 V two-stage
+Stage 1, stage 2, boiler, emergency heat, cool stage 2, idle.
+
+![Heat pump + boiler (hydro-air), 24 V two-stage](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-boiler.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + boiler (hydro-air), 24 V two-stage, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-boiler-dark.gif)
+
+</details>
+
+#### Heat pump + air handler, 24 V
+Heat, cool, fan, off.
+
+![Heat pump + air handler, 24 V](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-24v.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + air handler, 24 V, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-24v-dark.gif)
+
+</details>
+
+#### Heat pump + furnace, 24 V
+Heat pump, furnace, cool, idle.
+
+![Heat pump + furnace, 24 V](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-furnace-24v.gif)
+
+<details><summary>Dark theme</summary>
+
+![Heat pump + furnace, 24 V, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/hp-furnace-24v-dark.gif)
+
+</details>
+
+#### Air conditioner + furnace
+Cool, furnace, fan, idle.
+
+![Air conditioner + furnace](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-furnace.gif)
+
+<details><summary>Dark theme</summary>
+
+![Air conditioner + furnace, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-furnace-dark.gif)
+
+</details>
+
+#### Air conditioner + electric heat
+Cool, electric heat, idle.
+
+![Air conditioner + electric heat](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-electric.gif)
+
+<details><summary>Dark theme</summary>
+
+![Air conditioner + electric heat, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-electric-dark.gif)
+
+</details>
+
+#### Air conditioner + boiler (hydro-air)
+Cool, boiler, idle.
+
+![Air conditioner + boiler (hydro-air)](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-boiler.gif)
+
+<details><summary>Dark theme</summary>
+
+![Air conditioner + boiler (hydro-air), dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-boiler-dark.gif)
+
+</details>
+
+#### Air conditioner only
+Stage 1, stage 2, fan, off.
+
+![Air conditioner only](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac.gif)
+
+<details><summary>Dark theme</summary>
+
+![Air conditioner only, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/ac-dark.gif)
+
+</details>
+
+#### Furnace only
+Heat, fan, idle.
+
+![Furnace only](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/furnace.gif)
+
+<details><summary>Dark theme</summary>
+
+![Furnace only, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/furnace-dark.gif)
+
+</details>
+
+#### Electric heat only
+Heat, fan, idle.
+
+![Electric heat only](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/electric.gif)
+
+<details><summary>Dark theme</summary>
+
+![Electric heat only, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/electric-dark.gif)
+
+</details>
+
+#### Boiler with radiators
+Heat, idle.
+
+![Boiler with radiators](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/boiler.gif)
+
+<details><summary>Dark theme</summary>
+
+![Boiler with radiators, dark theme](https://raw.githubusercontent.com/oxn0r/ha-aciq-thermostat/main/docs/images/systems/boiler-dark.gif)
+
+</details>
+
+</details>
+
 - The outdoor fan spins while the compressor runs, faster at higher compressor frequency.
 - Refrigerant lines turn red when heating and blue when cooling, with the flow reversing in cool.
-- A flame shows when the gas furnace is on, and the blower spins while it runs.
+- Only the equipment you have is drawn: no furnace on a heat pump with an air handler, no outdoor unit on a furnace or boiler alone.
+- A flame shows when the furnace or boiler is on, heat strips glow while electric heat runs, hot water flows to the coil or radiators from a boiler, and the blower spins while it runs.
+- On 24 V systems, which report calls rather than readings, the outdoor fan and headline follow compressor stage 1 or 2.
 - In Dry, the lines run blue as in cooling, water drips off the coil, and the header and a chip show the time left.
-- The house shows room temperature, setpoint and humidity. Chips show mode, blower stage, fault, and optionally power and filter use.
+- The house shows room temperature, setpoint and humidity. Chips show mode, blower stage, fault, the system type, and optionally power and filter use.
 - Tap any part to open that entity.
 
 **No Lovelace resource is needed.** The integration serves the card and loads it in every dashboard. After an update, reload the browser once to get the new card. Add it from the dashboard's card picker (*ACiQ System Card*, with a visual editor), or in YAML:
@@ -244,11 +394,15 @@ The integration includes the **ACiQ System Card**, an animated schematic of a du
 ```yaml
 type: custom:aciq-system-card
 title: HVAC system                  # optional
+heat_source: electric               # optional: furnace | electric | boiler | none (default: from the thermostat)
+outdoor_unit: heat_pump             # optional: heat_pump | air_conditioner | none (default: from the thermostat)
 device_id: 0123456789abcdef         # optional: needed only with more than one ACiQ thermostat
 entities:                           # optional overrides; null hides one
   power: sensor.heat_pump_power     # power chip (any power sensor)
   filter: sensor.furnace_filter_life_used   # filter chip, % used (warns at 90, red at 100)
 ```
+
+`heat_source` and `outdoor_unit` (also in the card's editor) are only needed when the card draws your equipment wrong. The usual case is a communicating air handler with electric heat strips, which the thermostat reports the same way as a furnace.
 
 The card finds the thermostat's entities through the device, so it works whatever the device or its entities are named. How each part is chosen, first match wins:
 1. `entities:` override for that part
@@ -258,11 +412,12 @@ The card finds the thermostat's entities through the device, so it works whateve
 <details><summary>Override keys</summary>
 
 `climate`, `room`, `humidity`, `setpoint`, `mode`, `outdoor`, `outdoor_coil`, `indoor_coil`, `return_air`, `hz`,
-`blower_stage`, `compressor`, `furnace`, `blower`, `fault`, `fault_codes`, `dry_left`, `power`, `filter`.
+`blower_stage`, `compressor`, `furnace`, `blower`, `fault`, `fault_codes`, `dry_left`, `system_type`,
+`compressor_call`, `compressor_stage_2`, `aux_heat_call`, `fan_call`, `power`, `filter`.
 
 </details>
 
-The schematic shows what the equipment data reports, so it needs firmware with equipment data (see [Supported devices](#supported-devices)). Without it, the house and mode still show, and the equipment stays idle.
+On communicating systems the schematic shows what the equipment data reports, so it needs firmware with equipment data (see [Supported devices](#supported-devices)). Without it, the house and mode still show, and the equipment stays idle. On 24 V systems it follows the outputs the thermostat drives (compressor, stage 2, aux heat, fan).
 
 ## Examples and use cases
 <details><summary>Know which heat source is running (dual fuel)</summary>

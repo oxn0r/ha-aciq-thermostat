@@ -34,6 +34,7 @@ from .const import (
 )
 from .coordinator import AciqCoordinator
 from .binary_sensor import for_unit
+from .system import SYSTEM_TYPES, describe as describe_system
 from .entity import AciqEntity
 
 PARALLEL_UPDATES = 0  # coordinator-based, read-only
@@ -188,6 +189,10 @@ SENSORS: tuple[AciqSensorDescription, ...] = (
     AciqSensorDescription(key="wiring_24v", translation_key="wiring_24v", v24=True,
                           entity_category=EntityCategory.DIAGNOSTIC,
                           value_fn=lambda d, eq: ", ".join((d.get("v24_outputs") or {}).get("wired", [])) or None),
+    # which equipment the thermostat runs (outdoor unit + heat source), for the system card
+    AciqSensorDescription(key="system_type", translation_key="system_type", device_class=SensorDeviceClass.ENUM,
+                          options=SYSTEM_TYPES, entity_category=EntityCategory.DIAGNOSTIC,
+                          value_fn=lambda d, eq: describe_system(d)["system"]),
     AciqSensorDescription(key="clock_offset", translation_key="clock_offset",
                           device_class=SensorDeviceClass.DURATION,
                           native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -260,6 +265,8 @@ class AciqSensor(AciqEntity, SensorEntity):
         if key == "compressor_frequency":
             # raw indoor-unit bits a defrost cycle should flip, kept in history until a defrost is mapped
             return self.equipment.get("defrost_signals") or None
+        if key == "system_type":
+            return {k: v for k, v in describe_system(self.data).items() if k != "system"}
         if key in ("outputs_24v", "wiring_24v"):
             v = self.data.get("v24") or {}
             out = self.data.get("v24_outputs") or {}
